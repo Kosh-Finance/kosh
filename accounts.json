@@ -1,0 +1,24 @@
+{
+  "accounts": [
+    {
+      "name": "organizer",
+      "mnemonic": "concert load couple harbor equip island argue ramp clarify fence smart topic",
+      "amount": 50000
+    },
+    {
+      "name": "member-b",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "amount": 50000
+    },
+    {
+      "name": "member-c",
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong",
+      "amount": 50000
+    },
+    {
+      "name": "member-d",
+      "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+      "amount": 50000
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+node_modules
+resources/
+build/
+.next/
+tsconfig.tsbuildinfo
+website/node_modules
+website/.docusaurus
+website/build
