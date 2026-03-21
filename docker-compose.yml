@@ -1,0 +1,49 @@
+# Midnight local-dev stack — matches SDK versions installed in this project:
+#   midnight-js-contracts@3.1.0 · ledger-v8@8.0.3 · dapp-connector-api@4.0.0
+#
+# Start:  docker compose up -d
+# Stop:   docker compose down
+# Logs:   docker compose logs -f
+# Fund:   see README — use Lace v1.36.0 with network set to "Undeployed"
+
+services:
+
+  node:
+    image: 'midnightntwrk/midnight-node:0.22.1'
+    container_name: kosh-node
+    ports:
+      - "9944:9944"
+    environment:
+      CFG_PRESET: "dev"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9944/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  indexer:
+    image: 'midnightntwrk/indexer-standalone:4.0.0'
+    container_name: kosh-indexer
+    ports:
+      - "8088:8088"
+    environment:
+      RUST_LOG: "indexer=info,chain_indexer=info,indexer_api=info,wallet_indexer=info,indexer_common=info,info"
+      APP__INFRA__SECRET: "303132333435363738393031323334353637383930313233343536373839303132"
+      APP__INFRA__NODE__URL: "ws://node:9944"
+    healthcheck:
+      test: ["CMD-SHELL", "cat /var/run/indexer-standalone/running"]
+      start_interval: "5s"
+      interval: "5s"
+      timeout: "2s"
+      retries: 5
+      start_period: 15s
+    depends_on:
+      node:
+        condition: service_started
+
+  proof-server:
+    image: 'midnightntwrk/proof-server:8.0.3'
+    container_name: kosh-proof-server
+    ports:
+      - "6300:6300"
