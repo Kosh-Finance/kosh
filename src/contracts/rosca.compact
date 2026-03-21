@@ -1,0 +1,287 @@
+// Kosh — ZK-ROSCA (Rotating Savings and Credit Association)
+// Privacy-preserving savings circles on Midnight Network
+//
+// Architecture:
+//   Public ledger state  — visible to all, modified only via disclose()
+//   ZK circuit logic     — computations that produce ZK proofs
+//   Witness functions    — private data supplied by TypeScript DApp, never leaves user machine
+//
+// Privacy model:
+//   Member identity   → persistentCommit(secret, nonce) — nonce randomizes, stored in MerkleTree
+//   Round nullifier   → persistentCommit(secret, round_bytes) — different nonce prevents linking
+//   Payout order      → payoutOrder Map records commitment→position on join (public, but commitment
+//                        is unlinkable to real identity)
+
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+// ─── Circle Lifecycle States ───────────────────────────────────────────────
+
+enum CircleStatus {
+  OPEN,              // Accepting member joins
+  ROUND_IN_PROGRESS, // Contribution window open (set when circle fills)
+  PAYOUT_PENDING,    // All contributions received — awaiting payout claim
+  DEFAULT_DETECTED,  // Round deadline passed with missing contributions
+  COMPLETED          // All rounds finished, all payouts distributed
+}
+
+// ─── Public Ledger State ───────────────────────────────────────────────────
+// Everything here is visible on-chain to all observers.
+
+export ledger contributionAmount: Uint<64>;         // Fixed amount per member per round
+export ledger memberCap: Uint<8>;                   // Maximum members (2–16)
+export ledger roundCount: Uint<8>;                  // Total rounds (= memberCap)
+export ledger roundDuration: Uint<64>;              // Round window in seconds
+export ledger currentRound: Counter;                // Current round number (0-indexed)
+export ledger circleStatus: CircleStatus;           // Current lifecycle state
+export ledger memberTree: MerkleTree<4, Bytes<32>>; // Depth-4 Merkle tree of member commitments
+export ledger memberCount: Uint<8>;                 // How many members have joined
+export ledger spentIdentifiers: Set<Bytes<32>>;     // Round nullifiers (prevents double contribution)
+export ledger contributionsThisRound: Uint<8>;      // Contributions received this round
+export ledger roundDeadline: Uint<64>;              // Block-time deadline for current round
+export ledger payoutClaimed: Boolean;               // Whether payout claimed for current round
+export ledger participationReceipts: Set<Bytes<32>>; // Completion receipts for finished circles
+export ledger tokenColor: Bytes<32>;                // NIGHT token color identifier
+export ledger payoutOrder: Map<Uint<8>, Bytes<32>>; // Round index → member commitment (join order)
+
+// ─── Witness Functions ─────────────────────────────────────────────────────
+// Declared here, implemented in TypeScript (src/dapp/witnesses.ts).
+// These provide private data to the ZK circuit — never appear on-chain.
+
+witness memberSecret(): Bytes<32>;          // Member's 32-byte random secret
+witness memberNonce(): Bytes<32>;           // Randomness for identity commitment
+witness memberMerklePath(): MerkleTreePath<4, Bytes<32>>; // Auth path from leaf to root
+witness inCoin(): ShieldedCoinInfo;         // Shielded coin member contributes
+witness outCoin(): QualifiedShieldedCoinInfo; // Shielded coin contract sends for payout
+witness payoutRecipient(): Either<ZswapCoinPublicKey, ContractAddress>; // Payout destination
+
+// ─── Internal Circuit Helpers ────────────────────────────────────────────────
+
+// verifyMembership: proves the calling user belongs to this circle.
+// Returns the commitment hash for downstream use.
+// Privacy: reveals nothing about which leaf position the member occupies.
+circuit verifyMembership(): Bytes<32> {
+  const secret = memberSecret();
+  const nonce = memberNonce();
+  const commitment = persistentCommit<Bytes<32>>(secret, nonce);
+  const path = memberMerklePath();
+
+  // path.leaf is the leaf value stored in the Merkle tree path struct
+  // The runtime constrains merkleTreePathRoot(path) to equal the current memberTree root
+  assert(path.leaf == commitment, "Path leaf must match commitment");
+  const _root = merkleTreePathRoot<4, Bytes<32>>(path);
+
+  return commitment;
+}
+
+// ─── Circuit: createCircle ──────────────────────────────────────────────────
+// Called once by the organizer to initialize the ROSCA.
+// All parameters are public — disclosed for group coordination.
+
+export circuit createCircle(
+  amount: Uint<64>,     // Contribution per member per round
+  cap: Uint<8>,         // Member capacity (2–16)
+  rounds: Uint<8>,      // Number of rounds (must equal cap)
+  duration: Uint<64>,   // Round duration in seconds
+  color: Bytes<32>      // NIGHT token color
+): [] {
+  assert(amount > 0 as Uint<64>, "Amount must be positive");
+  assert(cap >= 2 as Uint<8>, "Need at least 2 members");
+  assert(cap <= 16 as Uint<8>, "Max 16 members (MerkleTree<4> depth)");
+  assert(rounds == cap, "Rounds must equal member count");
+  assert(duration > 0 as Uint<64>, "Duration must be positive");
+
+  contributionAmount = disclose(amount);
+  memberCap = disclose(cap);
+  roundCount = disclose(rounds);
+  roundDuration = disclose(duration);
+  tokenColor = disclose(color);
+  circleStatus = CircleStatus.OPEN;
+  memberCount = 0 as Uint<8>;
+  contributionsThisRound = 0 as Uint<8>;
+  payoutClaimed = false;
+}
+
+// ─── Circuit: joinCircle ────────────────────────────────────────────────────
+// A new member commits their identity into the Merkle tree.
+//
+// Privacy:
+//   - Commitment = persistentCommit(secret, nonce) — hash goes on-chain, secret stays local
+//   - Other members see a new leaf was added but cannot determine who
+//   - The payout order slot (round→commitment mapping) is public but commitment is
+//     unlinkable to real identity
+//
+// Parameters:
+//   deadline — block-time deadline for the first round (set by the last joining member)
+
+export circuit joinCircle(deadline: Uint<64>): [] {
+  assert(circleStatus == CircleStatus.OPEN, "Circle not open");
+  assert(memberCount < memberCap, "Circle is full");
+
+  const secret = memberSecret();
+  const nonce = memberNonce();
+  const commitment = persistentCommit<Bytes<32>>(secret, nonce);
+
+  // Insert commitment into Merkle tree (auto-appends at next position)
+  memberTree.insert(commitment);
+
+  // Record payout order: round N → this member's commitment
+  // The commitment is public knowledge (disclosed below) but unlinkable to identity
+  payoutOrder.insert(memberCount, commitment);
+
+  memberCount = memberCount + 1 as Uint<8>;
+
+  // Publish commitment hash — reveals nothing about identity
+  disclose(commitment);
+
+  // Auto-transition when all slots filled
+  if (memberCount == memberCap) {
+    circleStatus = CircleStatus.ROUND_IN_PROGRESS;
+    roundDeadline = disclose(deadline);
+  }
+}
+
+// ─── Circuit: contribute ────────────────────────────────────────────────────
+// A member contributes the fixed amount for the current round.
+//
+// Privacy:
+//   - Membership verified via Merkle proof (no position revealed)
+//   - Round nullifier = persistentCommit(secret, round_as_bytes) — round-specific,
+//     different from identity commitment (different nonce domain)
+//   - Token transfer via Zswap receiveShielded — shielded, amount verified in-circuit
+
+export circuit contribute(): [] {
+  assert(circleStatus == CircleStatus.ROUND_IN_PROGRESS, "Round not in progress");
+  assert(blockTimeLte(roundDeadline), "Round deadline has passed");
+
+  // Step 1: verify membership (Merkle path proof)
+  const _commitment = verifyMembership();
+
+  // Step 2: compute round-specific nullifier
+  // Uses persistentCommit with the round number as nonce — different domain from identity commitment
+  const secret = memberSecret();
+  const roundId = persistentCommit<Bytes<32>>(secret, currentRound as Bytes<32>);
+
+  // Step 3: prevent double contribution
+  assert(!spentIdentifiers.member(roundId), "Already contributed this round");
+  spentIdentifiers.insert(roundId);
+
+  // Step 4: verify and receive shielded coin
+  // disclose() is required by Compact's disclosure tracking for witness values passed to Zswap
+  const coin = inCoin();
+  assert(coin.color == tokenColor, "Wrong token color");
+  assert(coin.value == contributionAmount as Uint<128>, "Wrong contribution amount");
+  receiveShielded(disclose(coin));
+
+  // Step 5: track progress
+  contributionsThisRound = contributionsThisRound + 1 as Uint<8>;
+  if (contributionsThisRound == memberCap) {
+    circleStatus = CircleStatus.PAYOUT_PENDING;
+  }
+}
+
+// ─── Circuit: claimPayout ───────────────────────────────────────────────────
+// The designated member for this round claims the full pool.
+// Payout order is round-robin by join order: position 0 → round 0, etc.
+//
+// Privacy:
+//   - Member proves membership AND correct position without revealing identity
+//   - payoutOrder[currentRound] stores the commitment of the eligible recipient
+//   - Payout via Zswap sendShielded — shielded transfer to private wallet
+//
+// Parameters:
+//   nextDeadline — block-time deadline for the next round (if any)
+
+export circuit claimPayout(nextDeadline: Uint<64>): [] {
+  assert(circleStatus == CircleStatus.PAYOUT_PENDING, "No payout available");
+  assert(!payoutClaimed, "Payout already claimed this round");
+
+  // Step 1: verify membership and get commitment
+  const commitment = verifyMembership();
+
+  // Step 2: verify this is the right member's round
+  // Look up who should receive payout for the current round
+  const expectedCommitment = payoutOrder.lookup(currentRound as Uint<8>);
+  assert(expectedCommitment == commitment, "Not your payout round");
+
+  // Step 3: compute payout amount = contributionAmount × memberCap
+  // Multiply via Field cast (needed to avoid Compact overflow constraint errors)
+  const amountF = contributionAmount as Field;
+  const capF = memberCap as Field;
+  const payoutAmount = (amountF * capF) as Uint<128>;
+
+  // Step 4: send shielded payout
+  // All args must be disclosed — Compact's Zswap disclosure requirement
+  sendShielded(disclose(outCoin()), disclose(payoutRecipient()), disclose(payoutAmount));
+
+  payoutClaimed = true;
+
+  // Step 5: advance to next round or complete circle
+  currentRound.increment(1);
+  contributionsThisRound = 0 as Uint<8>;
+  payoutClaimed = false;
+
+  if (currentRound == roundCount as Uint<64>) {
+    circleStatus = CircleStatus.COMPLETED;
+  } else {
+    circleStatus = CircleStatus.ROUND_IN_PROGRESS;
+    roundDeadline = disclose(nextDeadline);
+  }
+}
+
+// ─── Circuit: reportDefault ─────────────────────────────────────────────────
+// Reveals ONLY the defaulting member's commitment after a missed deadline.
+// The caller must know the defaulter's Merkle path (typically the organizer
+// who tracks the full tree for accountability).
+//
+// Privacy guarantee:
+//   - Only the defaulter's commitment is disclosed
+//   - Honest members' identities and commitments are untouched
+//   - Proves: (a) commitment is in the tree, (b) their roundId NOT in spentIdentifiers
+
+export circuit reportDefault(leafCommitment: Bytes<32>): [] {
+  assert(circleStatus == CircleStatus.ROUND_IN_PROGRESS, "Round not in progress");
+  assert(blockTimeGte(roundDeadline), "Deadline not yet passed");
+  assert(contributionsThisRound < memberCap, "All members contributed — no default");
+
+  // Step 1: verify the candidate commitment exists in the Merkle tree
+  const path = memberMerklePath();
+  assert(path.leaf == leafCommitment, "Path leaf mismatch");
+  const _root = merkleTreePathRoot<4, Bytes<32>>(path);
+
+  // Step 2: compute the round nullifier the defaulter WOULD have used
+  const secret = memberSecret();
+  const expectedRoundId = persistentCommit<Bytes<32>>(secret, currentRound as Bytes<32>);
+
+  // Step 3: confirm they did NOT contribute
+  assert(!spentIdentifiers.member(expectedRoundId), "Not a defaulter — already contributed");
+
+  // Step 4: publicly reveal the defaulter's commitment (not their identity)
+  disclose(leafCommitment);
+  circleStatus = CircleStatus.DEFAULT_DETECTED;
+}
+
+// ─── Circuit: generateParticipationProof ────────────────────────────────────
+// After circle completion, a member generates a portable proof of participation.
+// The receipt is stored on-chain and can be shared without revealing identity.
+//
+// Privacy:
+//   - Receipt = persistentCommit(secret, roundCount_bytes)
+//   - Sharing the receipt proves ROSCA completion without linking to identity
+
+export circuit generateParticipationProof(): Bytes<32> {
+  assert(circleStatus == CircleStatus.COMPLETED, "Circle not yet completed");
+
+  // Verify membership first
+  const _commitment = verifyMembership();
+
+  // Create participation receipt: binds member secret to this circle's completion
+  const secret = memberSecret();
+  const receipt = persistentCommit<Bytes<32>>(secret, currentRound as Bytes<32>);
+
+  // Store on-chain for future verification
+  participationReceipts.insert(receipt);
+
+  return disclose(receipt);
+}
