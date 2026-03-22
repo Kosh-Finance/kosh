@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Space_Grotesk, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import AppNav from './components/AppNav';
+import { WalletProvider } from './context/WalletContext';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <body>
+        <WalletProvider>
         <AppNav />
         {children}
         <footer style={{
@@ -69,6 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             ))}
           </nav>
         </footer>
+        </WalletProvider>
       </body>
     </html>
   );
