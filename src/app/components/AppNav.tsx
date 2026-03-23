@@ -1,73 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Wallet, ChevronDown, Copy, Check, Shield, AlertCircle } from 'lucide-react';
+import { useState } from 'react';
+import { useWallet } from '@/app/context/WalletContext';
 
 export default function AppNav() {
   const pathname = usePathname();
-  const [status, setStatus]           = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
-  const [address, setAddress]         = useState<string | null>(null);
-  const [error, setError]             = useState<string | null>(null);
-  const [copied, setCopied]           = useState(false);
+  const { status, address, error, connect, disconnect } = useWallet();
+  const [copied, setCopied]         = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-
-  useEffect(() => {
-    if (sessionStorage.getItem('kosh:wallet:connected') === 'true') {
-      void connect(true);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function connect(silent = false) {
-    setStatus('connecting');
-    setError(null);
-    try {
-      // Lace injects window.midnight.mnLace asynchronously after page load.
-      // Poll for up to 3 seconds before giving up.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lace = await (async (): Promise<import('@midnight-ntwrk/dapp-connector-api').InitialAPI | undefined> => {
-        for (let i = 0; i < 30; i++) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const found = (window as any).midnight?.mnLace;
-          if (found) return found;
-          await new Promise(r => setTimeout(r, 100));
-        }
-        return undefined;
-      })();
-      if (!lace) throw new Error('LACE_NOT_FOUND');
-      const api   = await lace.connect('preprod');
-      const addrs = await api.getShieldedAddresses();
-      // Persist wallet config so contract hooks can use the right endpoints
-      const cfg = await api.getConfiguration();
-      sessionStorage.setItem('kosh:wallet:config', JSON.stringify(cfg));
-      setAddress(addrs.shieldedAddress ?? null);
-      setStatus('connected');
-      sessionStorage.setItem('kosh:wallet:connected', 'true');
-    } catch (err: any) {
-      sessionStorage.removeItem('kosh:wallet:connected');
-      const msg = err?.message ?? '';
-      if (!silent) {
-        if (msg === 'LACE_NOT_FOUND' || msg.includes('inject') || msg.includes('undefined'))
-          setError('Lace not detected. Make sure the Lace extension is enabled for this site and its network is set to "Undeployed".');
-        else if (msg.includes('reject') || msg.includes('denied') || msg.includes('cancel'))
-          setError('Connection rejected in Lace.');
-        else
-          setError(msg || 'Failed to connect.');
-        setStatus('error');
-      } else {
-        setStatus('disconnected');
-      }
-    }
-  }
-
-  function disconnect() {
-    setStatus('disconnected');
-    setAddress(null);
-    setError(null);
-    setShowDropdown(false);
-    sessionStorage.removeItem('kosh:wallet:connected');
-  }
 
   async function copyAddress() {
     if (!address) return;
@@ -164,12 +107,12 @@ export default function AppNav() {
                 }}>
                   <Shield size={10} color="var(--violet)" />
                   <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                    Midnight · Preprod
+                    Midnight · Preview
                   </span>
                 </div>
 
                 <button
-                  onClick={disconnect}
+                  onClick={() => { disconnect(); setShowDropdown(false); }}
                   style={{
                     width: '100%', padding: '0.5rem 0.75rem',
                     background: 'none',
@@ -201,7 +144,7 @@ export default function AppNav() {
           <>
             <button
               className="btn-primary"
-              onClick={() => connect()}
+              onClick={connect}
               style={{ fontSize: '0.8125rem', padding: '0.5rem 1.125rem', gap: '0.375rem' }}
             >
               <Wallet size={13} />
