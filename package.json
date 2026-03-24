@@ -28,7 +28,7 @@
     "@midnight-ntwrk/wallet-sdk-unshielded-wallet": "2.0.0",
     "level": "^8.0.0",
     "lucide-react": "^0.460.0",
-    "next": "^16.2.1",
+    "next": "^15.5.14",
     "react": "^18",
     "react-dom": "^18"
   },
