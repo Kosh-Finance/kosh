@@ -18,18 +18,19 @@ import type {
   ZKConfigProvider,
   ProofProvider,
 } from '@midnight-ntwrk/midnight-js-types';
+import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 
-// Set network to Midnight preprod — must happen before any SDK calls
-setNetworkId('preprod');
+// Set network to Midnight preview — must happen before any SDK calls
+setNetworkId('preview');
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
 export const ENV = {
-  INDEXER_URL:        process.env.NEXT_PUBLIC_INDEXER_URL      ?? 'https://indexer.preprod.midnight.network/api/v1/graphql',
-  INDEXER_WS_URL:     process.env.NEXT_PUBLIC_INDEXER_WS_URL   ?? 'wss://indexer.preprod.midnight.network/api/v1/graphql/ws',
-  NODE_URL:           process.env.NEXT_PUBLIC_NODE_URL          ?? 'https://rpc.preprod.midnight.network',
-  PROOF_SERVER_URL:   process.env.NEXT_PUBLIC_PROOF_SERVER_URL  ?? 'http://localhost:6300',
-  NETWORK_ID:         process.env.NEXT_PUBLIC_NETWORK_ID        ?? 'preprod',
+  INDEXER_URL:        process.env.NEXT_PUBLIC_INDEXER_URL      ?? 'https://indexer.preview.midnight.network/api/v3/graphql',
+  INDEXER_WS_URL:     process.env.NEXT_PUBLIC_INDEXER_WS_URL   ?? 'wss://indexer.preview.midnight.network/api/v3/graphql/ws',
+  NODE_URL:           process.env.NEXT_PUBLIC_NODE_URL          ?? 'https://rpc.preview.midnight.network',
+  PROOF_SERVER_URL:   process.env.NEXT_PUBLIC_PROOF_SERVER_URL  ?? 'https://proof-server.preview.midnight.network',
+  NETWORK_ID:         process.env.NEXT_PUBLIC_NETWORK_ID        ?? 'preview',
   PRIVATE_STATE_PATH: process.env.PRIVATE_STATE_PATH            ?? '~/.kosh/state',
 } as const;
 
@@ -61,6 +62,11 @@ export interface KoshProviders {
   publicDataProvider: PublicDataProvider;
   zkConfigProvider: ZKConfigProvider<any>;
   proofProvider: ProofProvider<any>;
+  // Present when a Lace wallet is connected (required for contract deploy/call)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  walletProvider?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  midnightProvider?: any;
 }
 
 // ─── Node.js Provider Factory (DApp / tests) ─────────────────────────────────
@@ -118,13 +124,17 @@ export async function createProviders(
 /**
  * Browser-safe provider factory for Next.js client components.
  * Uses in-memory private state (no LevelDB in browser).
- * ZK artifacts loaded from /public/build/.
+ * ZK artifacts loaded from /public/build/ (served as static assets).
+ *
+ * @param connectedApi - Lace ConnectedAPI from WalletContext. When provided, the
+ *   returned providers include walletProvider + midnightProvider so deployContract
+ *   and contract calls can sign and submit transactions via the wallet.
  */
-export async function createBrowserProviders(): Promise<KoshProviders> {
+export async function createBrowserProviders(connectedApi?: ConnectedAPI): Promise<KoshProviders> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const contractsModule: any = await import('@midnight-ntwrk/midnight-js-contracts');
 
-  // Prefer Lace's own indexer endpoints (user may have configured a custom node)
+  // Use Lace's own indexer endpoints so they stay in sync with the wallet config
   const { indexerUri, indexerWsUri } = getLaceConfig();
 
   const publicDataProvider: PublicDataProvider = new contractsModule.IndexerPublicDataProvider(
@@ -134,7 +144,6 @@ export async function createBrowserProviders(): Promise<KoshProviders> {
 
   const proofProvider: ProofProvider<any> = new contractsModule.HttpClientProofProvider(ENV.PROOF_SERVER_URL);
 
-  // Browser uses in-memory private state — user must back up secret externally
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const InMemoryPrivateStateProvider = contractsModule.InMemoryPrivateStateProvider as (new () => PrivateStateProvider<any, any>) | undefined;
   if (!InMemoryPrivateStateProvider) {
@@ -147,12 +156,20 @@ export async function createBrowserProviders(): Promise<KoshProviders> {
   if (!BrowserZkConfigProvider) {
     throw new Error('BrowserZkConfigProvider not available in this SDK version');
   }
+  // Loads ZK keys from /build/keys/ and /build/zkir/ (served from public/build/)
   const zkConfigProvider: ZKConfigProvider<any> = new BrowserZkConfigProvider('/build');
 
-  return {
+  const base: KoshProviders = {
     privateStateProvider,
     publicDataProvider,
     zkConfigProvider,
     proofProvider,
   };
+
+  if (!connectedApi) return base;
+
+  // Augment with Lace wallet + midnight providers for signing and submission
+  const { createLaceProviders } = await import('./lace-providers');
+  const { walletProvider, midnightProvider } = await createLaceProviders(connectedApi);
+  return { ...base, walletProvider, midnightProvider };
 }

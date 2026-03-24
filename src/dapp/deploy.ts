@@ -14,6 +14,7 @@
 // its strongly-typed generics (which require the compiled contract type).
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { deployContract as _deployContractType } from '@midnight-ntwrk/midnight-js-contracts';
+import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import { createProviders } from './providers';
 import { createWitnesses, generateMemberSecrets, saveMemberState } from './witnesses';
 import path from 'path';
@@ -21,7 +22,7 @@ import fs from 'fs/promises';
 
 // ─── Deployment Configuration ─────────────────────────────────────────────────
 
-interface CircleConfig {
+export interface CircleConfig {
   contributionAmount: bigint;  // In smallest denomination (1 NIGHT = 1_000_000)
   memberCap: number;           // 2–16
   roundCount: number;          // Should equal memberCap
@@ -120,7 +121,7 @@ export async function deployKoshCircle(
     contractAddress: deployed.contractAddress,
     config,
     deployedAt: new Date().toISOString(),
-    network: 'undeployed',
+    network: 'preview',
   };
   await fs.writeFile(
     path.resolve('./deployment.json'),
@@ -150,6 +151,79 @@ async function loadContractArtifacts(buildDir: string) {
       `Original error: ${err}`,
     );
   }
+}
+
+// ─── Browser Deployment ───────────────────────────────────────────────────────
+
+/**
+ * Deploy a new Kosh ROSCA circle from the browser using a connected Lace wallet.
+ *
+ * Unlike deployKoshCircle (which uses the server-side Node.js providers), this
+ * function runs entirely in the browser:
+ *   - ZK keys are fetched from /build/ (served from public/build/)
+ *   - walletProvider + midnightProvider are backed by the Lace ConnectedAPI
+ *   - Private state is in-memory (no LevelDB)
+ *   - No Docker, no local proof server — uses the remote preview proof server
+ *
+ * Prerequisites:
+ *   1. User has Lace Midnight extension connected to preview
+ *   2. Wallet has tDUST/tNight for gas
+ *   3. ZK artifacts are in /public/build/ (run `npm run compile && cp -r build public/build`)
+ */
+export async function deployFromBrowser(
+  config: CircleConfig,
+  connectedApi: ConnectedAPI,
+): Promise<{ contractAddress: string }> {
+  const { createBrowserProviders } = await import('./providers');
+  const { createWitnesses: mkWitnesses, generateMemberSecrets: genSecrets } = await import('./witnesses');
+
+  // All 6 providers including walletProvider + midnightProvider from Lace
+  const providers = await createBrowserProviders(connectedApi);
+
+  if (!providers.walletProvider || !providers.midnightProvider) {
+    throw new Error('Wallet not connected — call createBrowserProviders with a ConnectedAPI');
+  }
+
+  const { memberSecret, memberNonce } = genSecrets();
+  const witnesses = mkWitnesses();
+
+  // Load compiled contract from the Next.js bundle (imported at build time from build/)
+  const contractModule = await import('../../build/contract/index.js');
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { deployContract } = await import('@midnight-ntwrk/midnight-js-contracts') as any;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const deployResult: any = await deployContract(
+    providers,
+    {
+      compiledContract: contractModule,
+      args: [
+        config.contributionAmount,
+        config.memberCap,
+        config.roundCount,
+        config.roundDuration,
+      ],
+      initialPrivateState: witnesses,
+    },
+  );
+
+  const contractAddress: string =
+    deployResult?.deployTxData?.public?.contractAddress ??
+    deployResult?.contractAddress ??
+    deployResult?.public?.contractAddress;
+
+  // Persist organizer's private state in-memory under the contract address
+  await saveMemberState(providers.privateStateProvider, contractAddress, {
+    memberSecret,
+    memberNonce,
+    leafIndex: -1,
+    circleId: contractAddress,
+    joinedAt: 0,
+    recipientIsWallet: true,
+  });
+
+  return { contractAddress };
 }
 
 // ─── CLI Entry Point ──────────────────────────────────────────────────────────
