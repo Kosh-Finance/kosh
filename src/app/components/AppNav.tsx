@@ -36,8 +36,11 @@ export default function AppNav() {
         return undefined;
       })();
       if (!lace) throw new Error('LACE_NOT_FOUND');
-      const api   = await lace.connect('undeployed');
+      const api   = await lace.connect('preprod');
       const addrs = await api.getShieldedAddresses();
+      // Persist wallet config so contract hooks can use the right endpoints
+      const cfg = await api.getConfiguration();
+      sessionStorage.setItem('kosh:wallet:config', JSON.stringify(cfg));
       setAddress(addrs.shieldedAddress ?? null);
       setStatus('connected');
       sessionStorage.setItem('kosh:wallet:connected', 'true');
@@ -161,7 +164,7 @@ export default function AppNav() {
                 }}>
                   <Shield size={10} color="var(--violet)" />
                   <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                    Midnight · Undeployed
+                    Midnight · Preprod
                   </span>
                 </div>
 

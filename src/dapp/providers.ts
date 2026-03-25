@@ -19,19 +19,39 @@ import type {
   ProofProvider,
 } from '@midnight-ntwrk/midnight-js-types';
 
-// Set network to local dev — must happen before any SDK calls
-setNetworkId('undeployed');
+// Set network to Midnight preprod — must happen before any SDK calls
+setNetworkId('preprod');
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
 export const ENV = {
-  INDEXER_URL:        process.env.NEXT_PUBLIC_INDEXER_URL      ?? 'http://localhost:8088/api/v3/graphql',
-  INDEXER_WS_URL:     process.env.NEXT_PUBLIC_INDEXER_WS_URL   ?? 'ws://localhost:8088/api/v3/graphql/ws',
-  NODE_URL:           process.env.NEXT_PUBLIC_NODE_URL          ?? 'http://localhost:9944',
+  INDEXER_URL:        process.env.NEXT_PUBLIC_INDEXER_URL      ?? 'https://indexer.preprod.midnight.network/api/v1/graphql',
+  INDEXER_WS_URL:     process.env.NEXT_PUBLIC_INDEXER_WS_URL   ?? 'wss://indexer.preprod.midnight.network/api/v1/graphql/ws',
+  NODE_URL:           process.env.NEXT_PUBLIC_NODE_URL          ?? 'https://rpc.preprod.midnight.network',
   PROOF_SERVER_URL:   process.env.NEXT_PUBLIC_PROOF_SERVER_URL  ?? 'http://localhost:6300',
-  NETWORK_ID:         process.env.NEXT_PUBLIC_NETWORK_ID        ?? 'undeployed',
+  NETWORK_ID:         process.env.NEXT_PUBLIC_NETWORK_ID        ?? 'preprod',
   PRIVATE_STATE_PATH: process.env.PRIVATE_STATE_PATH            ?? '~/.kosh/state',
 } as const;
+
+/**
+ * Read Lace wallet configuration from sessionStorage (set on connect).
+ * Returns the wallet's preferred indexer/node endpoints when available,
+ * falling back to ENV defaults.
+ */
+export function getLaceConfig(): { indexerUri: string; indexerWsUri: string } {
+  if (typeof window === 'undefined') return { indexerUri: ENV.INDEXER_URL, indexerWsUri: ENV.INDEXER_WS_URL };
+  try {
+    const raw = sessionStorage.getItem('kosh:wallet:config');
+    if (!raw) return { indexerUri: ENV.INDEXER_URL, indexerWsUri: ENV.INDEXER_WS_URL };
+    const cfg = JSON.parse(raw);
+    return {
+      indexerUri:   cfg.indexerUri   ?? ENV.INDEXER_URL,
+      indexerWsUri: cfg.indexerWsUri ?? ENV.INDEXER_WS_URL,
+    };
+  } catch {
+    return { indexerUri: ENV.INDEXER_URL, indexerWsUri: ENV.INDEXER_WS_URL };
+  }
+}
 
 // ─── Provider Types ───────────────────────────────────────────────────────────
 
@@ -104,9 +124,12 @@ export async function createBrowserProviders(): Promise<KoshProviders> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const contractsModule: any = await import('@midnight-ntwrk/midnight-js-contracts');
 
+  // Prefer Lace's own indexer endpoints (user may have configured a custom node)
+  const { indexerUri, indexerWsUri } = getLaceConfig();
+
   const publicDataProvider: PublicDataProvider = new contractsModule.IndexerPublicDataProvider(
-    ENV.INDEXER_URL,
-    ENV.INDEXER_WS_URL,
+    indexerUri,
+    indexerWsUri,
   );
 
   const proofProvider: ProofProvider<any> = new contractsModule.HttpClientProofProvider(ENV.PROOF_SERVER_URL);
