@@ -23,9 +23,18 @@ export default function AppNav() {
     setStatus('connecting');
     setError(null);
     try {
+      // Lace injects window.midnight.mnLace asynchronously after page load.
+      // Poll for up to 3 seconds before giving up.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lace = (window as any).midnight?.mnLace as
-        import('@midnight-ntwrk/dapp-connector-api').InitialAPI | undefined;
+      const lace = await (async (): Promise<import('@midnight-ntwrk/dapp-connector-api').InitialAPI | undefined> => {
+        for (let i = 0; i < 30; i++) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const found = (window as any).midnight?.mnLace;
+          if (found) return found;
+          await new Promise(r => setTimeout(r, 100));
+        }
+        return undefined;
+      })();
       if (!lace) throw new Error('LACE_NOT_FOUND');
       const api   = await lace.connect('undeployed');
       const addrs = await api.getShieldedAddresses();
@@ -37,7 +46,7 @@ export default function AppNav() {
       const msg = err?.message ?? '';
       if (!silent) {
         if (msg === 'LACE_NOT_FOUND' || msg.includes('inject') || msg.includes('undefined'))
-          setError('Lace extension not found. Install Lace and set network to "Undeployed".');
+          setError('Lace not detected. Make sure the Lace extension is enabled for this site and its network is set to "Undeployed".');
         else if (msg.includes('reject') || msg.includes('denied') || msg.includes('cancel'))
           setError('Connection rejected in Lace.');
         else
