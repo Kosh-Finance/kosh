@@ -42,6 +42,12 @@ const nextConfig = {
         __dirname,
         'node_modules/@midnight-ntwrk/compact-runtime/dist/index.js',
       ),
+      // @midnight-ntwrk/ledger is a virtual peer dep re-exported by midnight-js-types.
+      // Map it to the actual installed version so webpack can resolve it.
+      '@midnight-ntwrk/ledger': path.resolve(
+        __dirname,
+        'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm_fs.js',
+      ),
     };
 
     if (!isServer) {
@@ -64,6 +70,7 @@ const nextConfig = {
         '@midnight-ntwrk/midnight-js-level-private-state-provider',
         '@midnight-ntwrk/ledger-v7',
         '@midnight-ntwrk/ledger-v8',
+        '@midnight-ntwrk/ledger',       // virtual alias → ledger-v7
         '@midnight-ntwrk/compact-runtime',
         '@midnight-ntwrk/compact-js',
       ];

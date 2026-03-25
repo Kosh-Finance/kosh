@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, Copy, Check, Info } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Copy, Check, Info, Wallet } from 'lucide-react';
 import { ZkProofSpinner } from '@/app/components/ZkProofSpinner';
+import { useWallet } from '@/app/context/WalletContext';
 
 type Step = 'params' | 'review' | 'deploying' | 'done';
 
@@ -19,48 +20,44 @@ const DURATION_PRESETS = [
 ];
 
 export default function CreateCirclePage() {
-  const [step, setStep]       = useState<Step>('params');
-  const [params, setParams]   = useState<Params>({ amount: '1', cap: 4, durationMin: 10 });
-  const [elapsed, setElapsed] = useState(0);
+  const { status, connectedApi, connect } = useWallet();
+
+  const [step, setStep]         = useState<Step>('params');
+  const [params, setParams]     = useState<Params>({ amount: '1', cap: 4, durationMin: 10 });
+  const [elapsed, setElapsed]   = useState(0);
   const [deployed, setDeployed] = useState<string | null>(null);
   const [deployErr, setDeployErr] = useState<string | null>(null);
-  const [copied, setCopied]   = useState(false);
+  const [copied, setCopied]     = useState(false);
 
   const amountN  = parseFloat(params.amount) || 0;
   const pool     = amountN * params.cap;
   const validAmt = amountN > 0 && amountN <= 10_000;
 
   async function deploy() {
+    if (!connectedApi) return;
+
     setStep('deploying');
     setDeployErr(null);
     const start = Date.now();
     const timer = setInterval(() => setElapsed(Date.now() - start), 500);
     try {
-      // Deployment requires the Midnight local-dev Docker stack.
-      // We call through a server action / API route to avoid bundling
-      // Node.js modules (fs, LevelDB) in the browser bundle.
-      const res = await fetch('/api/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contributionAmount: Math.floor(amountN * 1_000_000),
+      const { deployFromBrowser } = await import('@/dapp/deploy');
+      const { contractAddress } = await deployFromBrowser(
+        {
+          contributionAmount: BigInt(Math.floor(amountN * 1_000_000)),
           memberCap:   params.cap,
           roundCount:  params.cap,
-          roundDuration: params.durationMin * 60,
-        }),
-      });
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(error ?? `HTTP ${res.status}`);
-      }
-      const { contractAddress } = await res.json();
+          roundDuration: BigInt(params.durationMin * 60),
+        },
+        connectedApi,
+      );
       const recent = JSON.parse(localStorage.getItem('kosh:recent-circles') ?? '[]');
       recent.unshift({ contractAddress, joinedAt: Date.now(), leafIndex: -1 });
       localStorage.setItem('kosh:recent-circles', JSON.stringify(recent.slice(0, 10)));
       setDeployed(contractAddress);
       setStep('done');
-    } catch (err: any) {
-      setDeployErr(err?.message ?? 'Deployment failed');
+    } catch (err: unknown) {
+      setDeployErr((err as Error)?.message ?? 'Deployment failed');
       setStep('review');
     } finally {
       clearInterval(timer);
@@ -101,6 +98,22 @@ export default function CreateCirclePage() {
         <span>/</span>
         <span style={{ color: step === 'done' ? 'var(--green)' : 'var(--text-faint)' }}>Deploy</span>
       </div>
+
+      {/* ── Wallet gate ── */}
+      {status !== 'connected' && step !== 'done' && (
+        <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+            Connect Lace to deploy on Midnight preview.
+          </p>
+          <button
+            className="btn-primary"
+            onClick={connect}
+            style={{ fontSize: '0.8125rem', padding: '0.5rem 1rem', gap: '0.375rem', flexShrink: 0 }}
+          >
+            <Wallet size={13} /> Connect Lace
+          </button>
+        </div>
+      )}
 
       {/* ── params ── */}
       {step === 'params' && (
@@ -252,13 +265,18 @@ export default function CreateCirclePage() {
             <button className="btn-ghost" onClick={() => setStep('params')} style={{ flex: 1, justifyContent: 'center' }}>
               <ArrowLeft size={12} /> Edit
             </button>
-            <button className="btn-primary" onClick={deploy} style={{ flex: 2, justifyContent: 'center' }}>
+            <button
+              className="btn-primary"
+              onClick={deploy}
+              disabled={!connectedApi}
+              style={{ flex: 2, justifyContent: 'center' }}
+            >
               Deploy <ArrowRight size={13} />
             </button>
           </div>
 
           <p style={{ marginTop: '0.875rem', textAlign: 'center', fontSize: '0.6875rem', color: 'var(--text-faint)' }}>
-            Deploys to Midnight Network · Requires DUST for gas
+            Deploys to Midnight Preprod · Lace will prompt for approval
           </p>
         </>
       )}
@@ -272,7 +290,7 @@ export default function CreateCirclePage() {
           </div>
           <ZkProofSpinner label="Deploying contract" elapsedMs={elapsed} />
           <p style={{ marginTop: '1.25rem', fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-            Deploying the contract to your local Midnight node. This usually takes 10–30 seconds.
+            Generating ZK proof and submitting to Midnight preview. Lace will ask you to approve the transaction.
           </p>
         </>
       )}
