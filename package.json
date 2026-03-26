@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "cp -r build public/build",
     "build": "next build",
     "start": "next start",
     "compile": "compact compile src/contracts/rosca.compact --output build/",
