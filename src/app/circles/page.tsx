@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ArrowRight, Plus, Lock } from 'lucide-react';
 import { formatAddress } from '@/app/hooks/useWallet';
 
@@ -78,7 +79,7 @@ export default function CirclesPage() {
       <div className="divider-label" style={{ margin: '1.5rem 0' }}>or</div>
 
       {/* Create */}
-      <a
+      <Link
         href="/circles/create"
         className="card"
         style={{
@@ -113,7 +114,7 @@ export default function CirclesPage() {
           </div>
         </div>
         <ArrowRight size={14} color="var(--text-faint)" style={{ flexShrink: 0 }} />
-      </a>
+      </Link>
 
       {/* Recent */}
       {recent.length > 0 && (
@@ -121,7 +122,7 @@ export default function CirclesPage() {
           <p className="label" style={{ marginBottom: '0.875rem' }}>Recently joined</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
             {recent.map(c => (
-              <a
+              <Link
                 key={c.contractAddress}
                 href={`/circles/${c.contractAddress}`}
                 style={{
@@ -153,7 +154,7 @@ export default function CirclesPage() {
                   )}
                   <ArrowRight size={12} color="var(--text-faint)" />
                 </div>
-              </a>
+              </Link>
             ))}
           </div>
         </div>

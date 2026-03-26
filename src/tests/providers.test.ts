@@ -12,11 +12,11 @@ import { formatNight, formatAddress } from '../app/hooks/useWallet';
 // ─── ENV defaults ─────────────────────────────────────────────────────────────
 
 describe('ENV configuration', () => {
-  test('uses localhost defaults when env vars are absent', () => {
-    expect(ENV.INDEXER_URL).toContain('localhost');
-    expect(ENV.PROOF_SERVER_URL).toContain('6300');
-    expect(ENV.NODE_URL).toContain('9944');
-    expect(ENV.NETWORK_ID).toBe('undeployed');
+  test('uses preview network defaults when env vars are absent', () => {
+    expect(ENV.INDEXER_URL).toContain('preview.midnight.network');
+    expect(ENV.PROOF_SERVER_URL).toContain('preview.midnight.network');
+    expect(ENV.NODE_URL).toContain('preview.midnight.network');
+    expect(ENV.NETWORK_ID).toBe('preview');
   });
 
   test('all required keys are present', () => {

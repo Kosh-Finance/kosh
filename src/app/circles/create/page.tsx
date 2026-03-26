@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Copy, Check, Info, Wallet } from 'lucide-react';
 import { ZkProofSpinner } from '@/app/components/ZkProofSpinner';
 import { useWallet } from '@/app/context/WalletContext';
@@ -88,9 +89,9 @@ export default function CreateCirclePage() {
         display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2rem',
         fontSize: '0.75rem', color: 'var(--text-faint)',
       }}>
-        <a href="/circles" style={{ color: 'var(--text-faint)', textDecoration: 'none' }}>
+        <Link href="/circles" style={{ color: 'var(--text-faint)', textDecoration: 'none' }}>
           <ArrowLeft size={12} style={{ verticalAlign: 'middle' }} /> Circles
-        </a>
+        </Link>
         <span>/</span>
         <span style={{ color: step === 'params' ? 'var(--text)' : 'var(--text-faint)' }}>Configure</span>
         <span>/</span>

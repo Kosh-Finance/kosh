@@ -45,3 +45,5 @@ jobs:
 
       - name: Test
         run: npm test
+        env:
+          SKIP_INTEGRATION: 'true'

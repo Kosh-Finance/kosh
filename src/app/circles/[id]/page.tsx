@@ -243,7 +243,7 @@ export default function CircleDashboardPage() {
                   Join circle
                 </button>
                 <p style={{ marginTop: '0.625rem', fontSize: '0.6875rem', color: 'var(--text-faint)', textAlign: 'center' }}>
-                  You'll be assigned payout slot {ledger.memberCount}
+                  You&apos;ll be assigned payout slot {ledger.memberCount}
                 </p>
               </div>
             )}
@@ -341,7 +341,7 @@ export default function CircleDashboardPage() {
                 {showDefaultForm && (
                   <form onSubmit={handleReportDefault} className="card">
                     <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.65, marginBottom: '1rem' }}>
-                      Only the defaulter's commitment hash will be published. Honest members stay private.
+                      Only the defaulter&apos;s commitment hash will be published. Honest members stay private.
                     </p>
                     <div className="field" style={{ marginBottom: '0.875rem' }}>
                       <label className="input-label" htmlFor="report-leaf">
