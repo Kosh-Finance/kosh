@@ -187,8 +187,8 @@ export async function deployFromBrowser(
   const { memberSecret, memberNonce } = genSecrets();
   const witnesses = mkWitnesses();
 
-  // Load compiled contract from the Next.js bundle (imported at build time from build/)
-  const contractModule = await import('../../build/contract/index.js');
+  // Load compiled contract from public/build/ (committed to git, served statically)
+  const contractModule = await import('../../public/build/contract/index.js');
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { deployContract } = await import('@midnight-ntwrk/midnight-js-contracts') as any;
