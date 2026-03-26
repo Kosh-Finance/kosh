@@ -7,7 +7,8 @@ const nextConfig = {
   transpilePackages: [
     '@midnight-ntwrk/dapp-connector-api',
     '@midnight-ntwrk/midnight-js-network-id',
-    '@midnight-ntwrk/midnight-js-types',
+    // midnight-js-types removed: published as plain JS, transpilation interferes
+    // with webpack alias resolution that redirects it to the nested v3.1.0
     '@midnight-ntwrk/wallet-sdk-abstractions',
     '@midnight-ntwrk/wallet-sdk-address-format',
     '@midnight-ntwrk/wallet-sdk-dust-wallet',
@@ -55,6 +56,15 @@ const nextConfig = {
         __dirname,
         'node_modules/@midnight-ntwrk/ledger-v7',
       ),
+      // midnight-js-contracts v3.1.0 needs midnight-js-types v3.1.0 (nested copy).
+      // webpack hoisting resolves to the top-level v2.0.2 which lacks 'Transaction'.
+      // Force the v3.1.0 bundle for browser builds; server-side contracts is external.
+      ...(!isServer && {
+        '@midnight-ntwrk/midnight-js-types': path.resolve(
+          __dirname,
+          'node_modules/@midnight-ntwrk/midnight-js-contracts/node_modules/@midnight-ntwrk/midnight-js-types',
+        ),
+      }),
     };
 
     if (!isServer) {
