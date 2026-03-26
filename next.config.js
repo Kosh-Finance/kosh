@@ -36,17 +36,24 @@ const nextConfig = {
     // Fix: @midnight-ntwrk/compact-runtime has `"types"` after `"default"` in its
     // package.json exports field, which webpack rejects with "Default condition should
     // be last one". Alias directly to the dist file to bypass exports resolution.
+    //
+    // @midnight-ntwrk/ledger is a virtual peer dep re-exported by midnight-js-types.
+    // Deduplicate ledger-v7 so compact-js (which nests its own 7.0.0) uses the
+    // top-level 7.0.2 and we only load one copy of the 10 MB WASM.
     config.resolve.alias = {
       ...config.resolve.alias,
       '@midnight-ntwrk/compact-runtime': path.resolve(
         __dirname,
         'node_modules/@midnight-ntwrk/compact-runtime/dist/index.js',
       ),
-      // @midnight-ntwrk/ledger is a virtual peer dep re-exported by midnight-js-types.
-      // Map it to the actual installed version so webpack can resolve it.
-      '@midnight-ntwrk/ledger': path.resolve(
+      // Use browser WASM for client builds, FS WASM for server/Node builds.
+      '@midnight-ntwrk/ledger': isServer
+        ? path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm_fs.js')
+        : path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm.js'),
+      // Deduplicate: compact-js nests ledger-v7@7.0.0; force all imports to top-level 7.0.2
+      '@midnight-ntwrk/ledger-v7': path.resolve(
         __dirname,
-        'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm_fs.js',
+        'node_modules/@midnight-ntwrk/ledger-v7',
       ),
     };
 
@@ -61,25 +68,23 @@ const nextConfig = {
         level:           false,
         'classic-level': false,
         'abstract-level': false,
+        // Buffer polyfill — needed by midnight-js-utils in browser
+        buffer:          require.resolve('buffer/'),
       };
 
-      // Externalize heavy SDK packages — only needed at runtime via Lace wallet
-      // or when the Midnight node is running (not needed to render the UI)
-      const sdkExternals = [
-        '@midnight-ntwrk/midnight-js-contracts',
-        '@midnight-ntwrk/midnight-js-level-private-state-provider',
-        '@midnight-ntwrk/ledger-v7',
-        '@midnight-ntwrk/ledger-v8',
-        '@midnight-ntwrk/ledger',       // virtual alias → ledger-v7
-        '@midnight-ntwrk/compact-runtime',
-        '@midnight-ntwrk/compact-js',
+      // Only externalize packages that are truly Node.js-only.
+      // midnight-js-contracts, ledger-v7, compact-js, compact-runtime are needed
+      // for browser-side contract deployment and must be bundled (not externalized).
+      const browserOnlyExternals = [
+        '@midnight-ntwrk/midnight-js-level-private-state-provider', // uses LevelDB
+        '@midnight-ntwrk/ledger-v8',                                 // wallet-sdk only
       ];
 
       const prevExternals = config.externals;
       config.externals = [
         ...(Array.isArray(prevExternals) ? prevExternals : prevExternals ? [prevExternals] : []),
         ({ request }, callback) => {
-          if (sdkExternals.some(pkg => request === pkg || request?.startsWith(`${pkg}/`))) {
+          if (browserOnlyExternals.some(pkg => request === pkg || request?.startsWith(`${pkg}/`))) {
             return callback(null, `commonjs ${request}`);
           }
           callback();

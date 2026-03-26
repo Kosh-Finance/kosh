@@ -20,6 +20,9 @@ import type {
 } from '@midnight-ntwrk/midnight-js-types';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 
+// Re-export provider types so callers don't need a separate import
+export type { PrivateStateProvider, PublicDataProvider, ZKConfigProvider, ProofProvider };
+
 // Set network to Midnight preview — must happen before any SDK calls
 setNetworkId('preview');
 
@@ -123,53 +126,14 @@ export async function createProviders(
 
 /**
  * Browser-safe provider factory for Next.js client components.
- * Uses in-memory private state (no LevelDB in browser).
- * ZK artifacts loaded from /public/build/ (served as static assets).
+ * All six MidnightProviders are implemented natively without relying on
+ * non-existent provider classes from midnight-js-contracts.
  *
- * @param connectedApi - Lace ConnectedAPI from WalletContext. When provided, the
- *   returned providers include walletProvider + midnightProvider so deployContract
- *   and contract calls can sign and submit transactions via the wallet.
+ * Requires a ConnectedAPI (Lace wallet) for proving, balancing, and submission.
+ * Throws if connectedApi is not provided.
  */
-export async function createBrowserProviders(connectedApi?: ConnectedAPI): Promise<KoshProviders> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const contractsModule: any = await import('@midnight-ntwrk/midnight-js-contracts');
-
-  // Use Lace's own indexer endpoints so they stay in sync with the wallet config
-  const { indexerUri, indexerWsUri } = getLaceConfig();
-
-  const publicDataProvider: PublicDataProvider = new contractsModule.IndexerPublicDataProvider(
-    indexerUri,
-    indexerWsUri,
-  );
-
-  const proofProvider: ProofProvider<any> = new contractsModule.HttpClientProofProvider(ENV.PROOF_SERVER_URL);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const InMemoryPrivateStateProvider = contractsModule.InMemoryPrivateStateProvider as (new () => PrivateStateProvider<any, any>) | undefined;
-  if (!InMemoryPrivateStateProvider) {
-    throw new Error('InMemoryPrivateStateProvider not available in this SDK version');
-  }
-  const privateStateProvider: PrivateStateProvider<any, any> = new InMemoryPrivateStateProvider();
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const BrowserZkConfigProvider = contractsModule.BrowserZkConfigProvider as (new (path: string) => ZKConfigProvider<any>) | undefined;
-  if (!BrowserZkConfigProvider) {
-    throw new Error('BrowserZkConfigProvider not available in this SDK version');
-  }
-  // Loads ZK keys from /build/keys/ and /build/zkir/ (served from public/build/)
-  const zkConfigProvider: ZKConfigProvider<any> = new BrowserZkConfigProvider('/build');
-
-  const base: KoshProviders = {
-    privateStateProvider,
-    publicDataProvider,
-    zkConfigProvider,
-    proofProvider,
-  };
-
-  if (!connectedApi) return base;
-
-  // Augment with Lace wallet + midnight providers for signing and submission
-  const { createLaceProviders } = await import('./lace-providers');
-  const { walletProvider, midnightProvider } = await createLaceProviders(connectedApi);
-  return { ...base, walletProvider, midnightProvider };
+export async function createBrowserProviders(connectedApi: ConnectedAPI): Promise<KoshProviders> {
+  const { indexerUri } = getLaceConfig();
+  const { createAllBrowserProviders } = await import('./lace-providers');
+  return createAllBrowserProviders(connectedApi, indexerUri);
 }

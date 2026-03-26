@@ -72,7 +72,7 @@ export function useContract(
         const { loadMemberState } = await import('@/dapp/witnesses');
 
         // Set up SDK providers (browser-safe, no LevelDB)
-        const providers = await createBrowserProviders();
+        const providers = await createBrowserProviders(walletApi);
         providersRef.current = providers;
 
         // Load compiled contract module from /build/
