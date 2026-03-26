@@ -10,7 +10,7 @@
 
 import type { PrivateStateProvider } from '@midnight-ntwrk/midnight-js-types';
 import type { WitnessContext } from '@midnight-ntwrk/compact-runtime';
-import type { Ledger, Witnesses } from '../../build/contract';
+import type { Ledger, Witnesses } from '../../public/build/contract';
 
 // ─── Private State Schema ─────────────────────────────────────────────────────
 

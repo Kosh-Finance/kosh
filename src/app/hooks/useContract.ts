@@ -76,7 +76,7 @@ export function useContract(
         providersRef.current = providers;
 
         // Load compiled contract module from /build/
-        const contractModule = await import('/build/contract/index.js' as any);
+        const contractModule = await import('../../../public/build/contract/index.js' as any);
         contractModuleRef.current = contractModule;
 
         // Check if user is already a member
