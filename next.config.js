@@ -51,11 +51,11 @@ const nextConfig = {
       '@midnight-ntwrk/ledger': isServer
         ? path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm_fs.js')
         : path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm.js'),
-      // Deduplicate: compact-js nests ledger-v7@7.0.0; force all imports to top-level 7.0.2
-      '@midnight-ntwrk/ledger-v7': path.resolve(
-        __dirname,
-        'node_modules/@midnight-ntwrk/ledger-v7',
-      ),
+      // Deduplicate: compact-js nests ledger-v7@7.0.0; force all imports to top-level 7.0.2.
+      // Must point to a file (not directory) — ledger-v7 has no main/default export.
+      '@midnight-ntwrk/ledger-v7': isServer
+        ? path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm_fs.js')
+        : path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm.js'),
       // midnight-js-contracts v3.1.0 needs midnight-js-types v3.1.0 (nested copy).
       // webpack hoisting resolves to the top-level v2.0.2 which lacks 'Transaction'.
       // Force the v3.1.0 bundle for browser builds; server-side contracts is external.
