@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { Lock, AlertTriangle, Copy, Check, Shield } from 'lucide-react';
-import { useWallet, formatNight, formatAddress } from '@/app/hooks/useWallet';
+import { useWallet } from '@/app/context/WalletContext';
+import { formatNight, formatAddress } from '@/app/hooks/useWallet';
 import { useContract } from '@/app/hooks/useContract';
 import { StatusBadge, CountdownTimer } from '@/app/components/StatusBadge';
 import { PrivacyBadge } from '@/app/components/PrivacyBadge';
@@ -16,7 +17,7 @@ export default function CircleDashboardPage() {
   const contractAddress = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const wallet   = useWallet();
-  const contract = useContract(contractAddress ?? null, null);
+  const contract = useContract(contractAddress ?? null, wallet.connectedApi);
 
   const [copied, setCopied]                       = useState(false);
   const [reportLeaf, setReportLeaf]               = useState('');

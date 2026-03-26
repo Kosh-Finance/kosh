@@ -16,9 +16,12 @@ export interface WalletState {
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
   address: string | null;
   connectedApi: ConnectedAPI | null;
+  nightBalance: bigint | null;
+  dustBalance: bigint | null;
   error: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
+  refreshBalance: () => Promise<void>;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -27,9 +30,12 @@ const WalletContext = createContext<WalletState>({
   status: 'disconnected',
   address: null,
   connectedApi: null,
+  nightBalance: null,
+  dustBalance: null,
   error: null,
   connect: async () => {},
   disconnect: () => {},
+  refreshBalance: async () => {},
 });
 
 export function useWallet(): WalletState {
@@ -39,10 +45,26 @@ export function useWallet(): WalletState {
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus]       = useState<WalletState['status']>('disconnected');
-  const [address, setAddress]     = useState<string | null>(null);
+  const [status, setStatus]             = useState<WalletState['status']>('disconnected');
+  const [address, setAddress]           = useState<string | null>(null);
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
-  const [error, setError]         = useState<string | null>(null);
+  const [nightBalance, setNightBalance] = useState<bigint | null>(null);
+  const [dustBalance, setDustBalance]   = useState<bigint | null>(null);
+  const [error, setError]               = useState<string | null>(null);
+
+  async function readBalances(api: ConnectedAPI) {
+    try {
+      const [shielded, dust] = await Promise.all([
+        api.getShieldedBalances() as Promise<Record<string, bigint>>,
+        api.getDustBalance() as Promise<{ balance: bigint; cap: bigint }>,
+      ]);
+      const nightKey = Object.keys(shielded)[0];
+      setNightBalance(nightKey ? (shielded[nightKey] ?? 0n) : 0n);
+      setDustBalance(dust.balance ?? 0n);
+    } catch {
+      // Non-fatal
+    }
+  }
 
   const connectInternal = useCallback(async (silent: boolean) => {
     setStatus('connecting');
@@ -70,6 +92,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setAddress(addrs.shieldedAddress ?? null);
       setStatus('connected');
       sessionStorage.setItem('kosh:wallet:connected', 'true');
+
+      await readBalances(api);
     } catch (err: unknown) {
       sessionStorage.removeItem('kosh:wallet:connected');
       const msg = (err as Error)?.message ?? '';
@@ -93,9 +117,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setStatus('disconnected');
     setAddress(null);
     setConnectedApi(null);
+    setNightBalance(null);
+    setDustBalance(null);
     setError(null);
     sessionStorage.removeItem('kosh:wallet:connected');
   }, []);
+
+  const refreshBalance = useCallback(async () => {
+    if (connectedApi) await readBalances(connectedApi);
+  }, [connectedApi]);
 
   // Auto-reconnect on mount if previously connected
   useEffect(() => {
@@ -105,7 +135,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <WalletContext.Provider value={{ status, address, connectedApi, error, connect, disconnect }}>
+    <WalletContext.Provider value={{ status, address, connectedApi, nightBalance, dustBalance, error, connect, disconnect, refreshBalance }}>
       {children}
     </WalletContext.Provider>
   );
