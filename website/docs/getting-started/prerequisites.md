@@ -5,68 +5,71 @@ title: Prerequisites
 
 # Prerequisites
 
-Before running Kosh locally, you need the following installed.
+## Using the App
 
-## Required Software
+To deploy and participate in circles on [app.kosh.finance](https://app.kosh.finance), you only need:
+
+### Chrome + Lace Midnight Extension
+
+Kosh runs entirely in the browser via the [Lace Midnight](https://www.lace.io/) wallet extension.
+
+1. Install **Lace** from the Chrome Web Store
+2. Open Lace → switch to the **Midnight** tab
+3. Set network to **Preview**
+4. Fund your wallet with test NIGHT and DUST from the [Midnight faucet](https://faucet.midnight.network)
+
+:::info Preview network
+Kosh is deployed on Midnight's public **preview** testnet. Lace must be on the "Preview" network — not "Undeployed" (which is for local Docker dev only).
+:::
+
+:::tip Brave browser
+If using Brave, disable shields for `app.kosh.finance` — Brave's aggressive content blocking can prevent extension injection.
+:::
+
+No Docker, no Node.js, and no local setup are needed to use the live app.
+
+---
+
+## Local Contract Development
+
+To modify the Compact contract or run tests locally, you additionally need:
 
 ### Docker
 
-The Midnight local dev network runs in Docker. Install Docker Desktop or Docker Engine:
+The Midnight local dev network runs in Docker containers.
 
 - **Linux:** `curl -fsSL https://get.docker.com | sh`
 - **macOS/Windows:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
 Verify: `docker --version` (need 24+)
 
-### Node.js
-
-- **Version:** 18 or higher
-- **Install:** [nodejs.org](https://nodejs.org/) or via `nvm`
+### Node.js 20+
 
 ```bash
-node --version  # should be v18+
+node --version  # should be v20+
 npm --version
 ```
 
 ### Compact Compiler
 
-The Compact compiler (`compact`) compiles `.compact` contracts to ZK circuit keys.
+Compiles `.compact` contracts to ZK circuit keys.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
-source ~/.bashrc  # or ~/.zshrc
-compact --version  # should show 0.5.0+
+source ~/.bashrc   # or ~/.zshrc
+compact --version
 ```
 
-To install a specific compiler version:
+### Lace on "Undeployed" network
 
-```bash
-compact update 0.29.0
-```
-
-### Chrome + Lace Wallet
-
-The frontend requires the [Lace wallet](https://www.lace.io/) Chrome extension to connect to the Midnight network.
-
-1. Install Lace from the Chrome Web Store
-2. Open Lace → Settings → Network → Select **"Undeployed"**
-
-:::info
-"Undeployed" is Midnight's network ID for local development. Lace will automatically connect to `localhost:9944/8088/6300` when set to this network.
-:::
-
-## Recommended
-
-- **VS Code** with the [Compact extension](https://marketplace.visualstudio.com/items?itemName=midnight-ntwrk.compact) for syntax highlighting and type checking
-- **Git** for cloning the repository
+For local dev, set Lace to the **"Undeployed"** network so it targets `localhost`.
 
 ## Compatibility
 
 | Platform | Support |
 |----------|---------|
-| Linux (x86_64) | Full support |
-| macOS (Apple Silicon / Intel) | Full support |
-| Windows | WSL2 only |
-
-The Compact compiler ships native binaries for `x86_linux`, `aarch64_macos`, and `x86_macos`.
+| Chrome / Chromium | Full support |
+| Brave (shields off) | Full support |
+| Firefox | Not supported (Lace Midnight is Chrome-only) |
+| Linux / macOS / Windows (WSL2) | Local dev supported |

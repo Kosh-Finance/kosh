@@ -5,97 +5,51 @@ title: Deployment
 
 # Deployment
 
-## Deploying a Circle
+## Deploying from the Browser
 
-Circle deployment is handled server-side via the Next.js API route at `/api/deploy`. This keeps Node.js-only modules (LevelDB, file system) out of the browser bundle.
-
-### Via the Frontend
-
-The Create Circle page calls `/api/deploy` with the circle parameters:
+Circle deployment runs entirely in the browser via `deployFromBrowser()` in `src/dapp/deploy.ts`. No server, no Docker, no local node required.
 
 ```typescript
-const response = await fetch('/api/deploy', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    contributionAmount: '1000000',  // 1 NIGHT in smallest denomination
-    memberCap: '4',
-    roundCount: '4',
-    roundDuration: '600',           // 10 minutes in seconds
-  }),
-});
+import { deployFromBrowser } from '@/dapp/deploy';
+import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 
-const { contractAddress } = await response.json();
-```
-
-### Via the Deploy Script
-
-For testing and scripting, use `src/dapp/deploy.ts` directly:
-
-```bash
-ts-node src/dapp/deploy.ts
-```
-
-Or programmatically:
-
-```typescript
-import { deployKoshCircle } from '@/dapp/deploy';
-
-const result = await deployKoshCircle({
-  contributionAmount: BigInt(1_000_000),  // 1 NIGHT
-  memberCap: 4,
-  roundCount: 4,
-  roundDuration: BigInt(600),
-});
+const result = await deployFromBrowser(
+  {
+    contributionAmount: 1_000_000n,  // 1 NIGHT in smallest denomination
+    memberCap: 4,
+    roundCount: 4,
+    roundDuration: 600n,             // seconds
+  },
+  connectedApi,  // from useWallet() context
+);
 
 console.log('Deployed at:', result.contractAddress);
 ```
 
-## How Deployment Works
+### How It Works
 
-The `deployKoshCircle` function:
+`deployFromBrowser()`:
 
-1. **Loads compiled artifacts** from `build/contract/index.js` and `build/keys/`
-2. **Creates providers** (LevelDB private state, Indexer public data, ZK config, proof server)
-3. **Sets initial private state** — organizer's member secret and nonce
+1. **Creates browser providers** via `createBrowserProviders(connectedApi)` — all six providers including `walletProvider` and `midnightProvider` backed by Lace
+2. **Loads the compiled contract** from `public/build/contract/index.js` (served statically)
+3. **Generates member secrets** for the organizer
 4. **Calls `deployContract()`** from `@midnight-ntwrk/midnight-js-contracts`
-5. **Saves the contract address** to local state for future lookups
-6. **Returns** `{ contractAddress, txHash, blockNumber }`
+5. **Lace signs and submits** the transaction — a popup appears in the extension
+6. **Saves organizer's private state** in-memory under the new contract address
+7. **Returns** `{ contractAddress }`
 
-```typescript
-import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
+### ZK Artifacts
 
-const result = await deployContract(providers, {
-  compiledContract: contractModule,
-  args: {
-    amount: config.contributionAmount,
-    cap: config.memberCap,
-    rounds: config.roundCount,
-    durationPerRound: config.roundDuration,
-  },
-  initialPrivateState: organizerPrivateState,
-});
+The compiled contract artifacts live in `public/build/` and are committed to git so they're always available to the browser:
+
+```
+public/build/
+  contract/index.js   ← TypeScript bindings (entry point for deployFromBrowser)
+  keys/               ← Proving and verifying keys
+  zkir/               ← ZK Intermediate Representation
 ```
 
-## Error Handling
-
-The API route returns structured errors:
-
-| Scenario | Status | Error |
-|----------|--------|-------|
-| Missing fields | 400 | `"Missing required fields"` |
-| Node not running | 503 | `"Cannot reach Midnight node. Is the Docker stack running? Run: docker compose up -d"` |
-| Other error | 500 | Error message |
-
-```typescript
-// Friendly error for most common failure
-if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
-  return NextResponse.json(
-    { error: 'Cannot reach Midnight node. Is the Docker stack running?' },
-    { status: 503 },
-  );
-}
-```
+When you run `npm run compile` locally, the `prebuild` script copies `build/` → `public/build/`.
 
 ## Deployment Time
 
@@ -103,17 +57,54 @@ if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
 |------|---------|
 | Load ZK artifacts | < 1s |
 | Generate deployment proof | 10–20s |
-| Transaction submission | < 5s |
+| Transaction submission + Lace signing | < 5s |
 | Indexer confirmation | 5–10s |
 | **Total** | **~20–35s** |
 
-## Compiled Artifact Loading
+## Create Circle UI
 
-The deployment script dynamically imports the compiled contract module:
+The Create Circle page (`src/app/circles/create/page.tsx`) reads `connectedApi` from `WalletContext` and calls `deployFromBrowser()` directly:
 
 ```typescript
-// Dynamic import to avoid bundling issues
-const contractModule = await import('../../../build/contract/index.js');
+const wallet = useWallet();  // from WalletContext
+
+async function handleDeploy() {
+  const { contractAddress } = await deployFromBrowser(config, wallet.connectedApi!);
+  router.push(`/circles/${contractAddress}`);
+}
 ```
 
-The `build/contract/index.js` file is generated by the Compact compiler and contains the TypeScript bindings for the contract's circuits and types.
+If the wallet is not connected, the page shows a "Connect Lace first" prompt instead of the deploy form.
+
+## Server-Side Deploy (Local Dev Only)
+
+For Node.js scripts and integration tests against a local Docker stack, use `deployKoshCircle()`:
+
+```typescript
+import { deployKoshCircle } from '@/dapp/deploy';
+
+const result = await deployKoshCircle({
+  contributionAmount: 1_000_000n,
+  memberCap: 4,
+  roundCount: 4,
+  roundDuration: 600n,
+});
+```
+
+This uses Node.js providers (LevelDB, `NodeZkConfigProvider`) and requires:
+- Midnight Docker stack running (`docker compose up -d`)
+- Contract compiled (`npm run compile`)
+- Test wallet funded via the local funding CLI
+
+The `/api/deploy` Next.js route also calls `deployKoshCircle()` for server-side use. **The browser no longer uses `/api/deploy`** — it uses `deployFromBrowser()` instead.
+
+## CircleConfig
+
+```typescript
+export interface CircleConfig {
+  contributionAmount: bigint;  // In smallest denomination (1 NIGHT = 1_000_000)
+  memberCap: number;           // 2–16
+  roundCount: number;          // Should equal memberCap
+  roundDuration: bigint;       // In seconds
+}
+```

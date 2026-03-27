@@ -5,89 +5,112 @@ title: Providers
 
 # Providers
 
-The Midnight SDK requires four providers to interact with a deployed contract. Kosh configures them in `src/dapp/providers.ts`.
+The Midnight SDK requires six providers to deploy and interact with a contract. Kosh configures them in `src/dapp/providers.ts` with two separate factory functions: one for the browser (backed by the Lace wallet) and one for Node.js scripts.
 
-## The Four Providers
+## The Six Providers
 
 | Provider | Interface | Purpose |
 |----------|-----------|---------|
-| `privateStateProvider` | `LevelPrivateStateProvider` | Reads/writes member secrets to LevelDB |
-| `publicDataProvider` | `IndexerPublicDataProvider` | Queries ledger state via Indexer GraphQL |
-| `zkConfigProvider` | `NodeZkConfigProvider` | Loads ZK circuit keys from `build/` |
-| `proofProvider` | `HttpClientProofProvider` | Sends circuit inputs to proof server |
+| `privateStateProvider` | `PrivateStateProvider` | Reads/writes member secrets |
+| `publicDataProvider` | `PublicDataProvider` | Queries ledger state via Indexer GraphQL |
+| `zkConfigProvider` | `ZKConfigProvider` | Loads ZK circuit keys |
+| `proofProvider` | `ProofProvider` | Sends circuit inputs to the remote proof server |
+| `walletProvider` | `WalletProvider` | Balances and signs transactions via Lace |
+| `midnightProvider` | `MidnightProvider` | Submits signed transactions to the node |
 
-## Configuration
+The first four are infrastructure providers. The last two are backed by the user's connected Lace wallet and are required for any operation that moves funds or modifies on-chain state.
+
+## Browser Providers
+
+In the browser, all six providers are created by `createBrowserProviders()`:
 
 ```typescript
-import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
-import { IndexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
-import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
-import { HttpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
+import { createBrowserProviders } from '@/dapp/providers';
+import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 
-export interface KoshProviders {
-  privateStateProvider: ReturnType<typeof levelPrivateStateProvider>;
-  publicDataProvider: IndexerPublicDataProvider;
-  zkConfigProvider: NodeZkConfigProvider;
-  proofProvider: HttpClientProofProvider;
-}
+const providers = await createBrowserProviders(connectedApi);
+```
 
-export function createProviders(): KoshProviders {
+This calls `createAllBrowserProviders()` from `src/dapp/lace-providers.ts`, which wraps the Lace `ConnectedAPI` into the SDK provider interfaces:
+
+- **`walletProvider`** — delegates `balanceTx` to `api.balanceUnsealedTransaction()`
+- **`midnightProvider`** — delegates `submitTx` to `api.submitTransaction()`
+- **`zkConfigProvider`** — fetches ZK keys from `/build/keys/` and `/build/zkir/` (served statically)
+- **`proofProvider`** — sends proof requests to `https://proof-server.preview.midnight.network`
+- **`publicDataProvider`** — reads state from the preview Indexer GraphQL endpoint
+- **`privateStateProvider`** — stores member secrets in-memory during the browser session
+
+```typescript
+// src/dapp/lace-providers.ts (simplified)
+export async function createAllBrowserProviders(
+  connectedApi: ConnectedAPI,
+  indexerUri: string,
+): Promise<KoshProviders> {
   return {
-    privateStateProvider: levelPrivateStateProvider({
-      midnightDbName: process.env.PRIVATE_STATE_PATH ?? '~/.kosh/state',
-      privateStateStoreName: 'kosh-private-state',
-      signingKeyStoreName: 'kosh-signing-keys',
-    }),
-
-    publicDataProvider: new IndexerPublicDataProvider(
-      process.env.NEXT_PUBLIC_INDEXER_URL ?? 'http://localhost:8088/api/v1/graphql',
-      process.env.NEXT_PUBLIC_INDEXER_WS_URL ?? 'ws://localhost:8088/api/v1/graphql/ws',
-    ),
-
-    zkConfigProvider: new NodeZkConfigProvider(
-      path.resolve(process.cwd(), 'build/keys'),
-      path.resolve(process.cwd(), 'build/zkir'),
-    ),
-
-    proofProvider: new HttpClientProofProvider(
-      process.env.NEXT_PUBLIC_PROOF_SERVER_URL ?? 'http://localhost:6300',
-    ),
+    walletProvider:       createWalletProvider(connectedApi),
+    midnightProvider:     createMidnightProvider(connectedApi),
+    zkConfigProvider:     createBrowserZkConfigProvider('/build'),
+    proofProvider:        createBrowserProofProvider(ENV.PROOF_SERVER_URL),
+    publicDataProvider:   createBrowserPublicDataProvider(indexerUri),
+    privateStateProvider: createInMemoryPrivateStateProvider(),
   };
 }
 ```
 
-## Browser vs. Node.js
+## Node.js Providers (Local Dev)
 
-The providers are used differently depending on context:
+For deploy scripts and integration tests, `createProviders()` returns Node.js-compatible providers:
 
-| Context | `privateStateProvider` | `zkConfigProvider` |
-|---------|----------------------|-------------------|
-| **Server-side** (API route, deploy script) | LevelDB (file system) | Loads keys from `build/` |
-| **Browser** (frontend) | In-memory (no LevelDB) | Not needed (proofs via API) |
+```typescript
+import { createProviders } from '@/dapp/providers';
 
-The Kosh frontend avoids directly instantiating Node.js-only providers in browser code. Instead, contract deployment and interaction that requires LevelDB goes through Next.js API routes (`/api/deploy`, etc.).
+const providers = await createProviders(
+  './build',          // Path to Compact compiler output
+  '~/.kosh/state',    // LevelDB path for private state
+);
+```
+
+These use:
+- **`levelPrivateStateProvider`** — LevelDB on the local filesystem
+- **`NodeZkConfigProvider`** — loads keys from `build/keys/` and `build/zkir/`
+- **`HttpClientProofProvider`** — HTTP client to the proof server (local Docker at `:6300` or remote)
+- **`IndexerPublicDataProvider`** — GraphQL client to the Indexer
+
+The Node.js providers do **not** include `walletProvider` or `midnightProvider` — these must be supplied separately when running against a real network.
 
 ## Environment Variables
 
-All provider URLs are configurable via `.env.local`:
+All endpoint URLs are configurable via `.env.local`:
 
 ```env
-NEXT_PUBLIC_INDEXER_URL=http://localhost:8088/api/v1/graphql
-NEXT_PUBLIC_INDEXER_WS_URL=ws://localhost:8088/api/v1/graphql/ws
-NEXT_PUBLIC_NODE_URL=http://localhost:9944
-NEXT_PUBLIC_PROOF_SERVER_URL=http://localhost:6300
-NEXT_PUBLIC_NETWORK_ID=undeployed
-PRIVATE_STATE_PATH=~/.kosh/state
+NEXT_PUBLIC_INDEXER_URL=https://indexer.preview.midnight.network/api/v3/graphql
+NEXT_PUBLIC_INDEXER_WS_URL=wss://indexer.preview.midnight.network/api/v3/graphql/ws
+NEXT_PUBLIC_NODE_URL=https://rpc.preview.midnight.network
+NEXT_PUBLIC_PROOF_SERVER_URL=https://proof-server.preview.midnight.network
+NEXT_PUBLIC_NETWORK_ID=preview
 ```
+
+If no `.env.local` is present, these preview network defaults are used. For local Docker dev, override with `localhost` URLs and set `NEXT_PUBLIC_NETWORK_ID=undeployed`.
+
+## Lace Wallet Config
+
+On wallet connect, Kosh saves the wallet's own endpoint configuration to `sessionStorage`:
+
+```typescript
+const cfg = await api.getConfiguration();
+sessionStorage.setItem('kosh:wallet:config', JSON.stringify(cfg));
+```
+
+`getLaceConfig()` reads this to ensure `publicDataProvider` uses the same Indexer endpoint as the wallet — keeping them in sync regardless of `.env.local`.
 
 ## Network ID
 
-The network ID must be set before any SDK calls:
+The network ID must be set once before any SDK calls:
 
 ```typescript
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
-setNetworkId(process.env.NEXT_PUBLIC_NETWORK_ID ?? 'undeployed');
+setNetworkId('preview');  // Set at module load time in providers.ts
 ```
 
-For local dev, the network ID is `undeployed`. This affects address encoding and is validated by the Lace wallet extension.
+The network ID affects shielded address encoding and is validated by the Lace wallet. Use `preview` for the public testnet, `undeployed` for local Docker dev.
