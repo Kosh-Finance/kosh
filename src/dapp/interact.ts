@@ -21,6 +21,7 @@ import {
   generateMemberSecrets,
   loadMemberState,
   saveMemberState,
+  PRIVATE_STATE_ID,
 } from './witnesses';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -68,13 +69,22 @@ async function getContractHandle(
   contractAddress: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
+  // Wrap raw module in a CompiledContract with witnesses attached.
+  // The SDK accesses compiledContract[CompactContextInternal.TypeId].ctor;
+  // passing the raw ES module causes "Cannot read properties of undefined (reading 'ctor')".
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { CompiledContract } = await import('@midnight-ntwrk/compact-js') as any;
+  const compiledContract = CompiledContract.withWitnesses(
+    CompiledContract.make('kosh-rosca', (contractModule as any).Contract),
+    createWitnesses(),
+  );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sdk: any = await import('@midnight-ntwrk/midnight-js-contracts');
-  const found = await sdk.findDeployedContract(providers, {
-    compiledContract: contractModule,
+  return sdk.findDeployedContract(providers, {
+    compiledContract,
     contractAddress,
+    privateStateId: PRIVATE_STATE_ID,
   });
-  return found;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,8 +109,12 @@ export async function getLedgerState(
   contractAddress: string,
   contractModule: unknown,
 ): Promise<CircleLedgerState> {
-  const found = await getContractHandle(providers, contractModule, contractAddress);
-  const ledger = await found.callTx.getLedgerState?.() ?? found.ledger;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { getPublicStates } = await import('@midnight-ntwrk/midnight-js-contracts') as any;
+  const { contractState } = await getPublicStates(providers.publicDataProvider, contractAddress);
+  // contractState.data is the ChargedState; contractModule.ledger() decodes to typed Ledger
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ledger = (contractModule as any).ledger(contractState.data);
   return mapLedger(ledger);
 }
 
@@ -176,34 +190,38 @@ export async function joinCircle(
   };
   await saveMemberState(providers.privateStateProvider, contractAddress, preJoinState);
 
-  const witnesses = createWitnesses();
   const found = await getContractHandle(providers, contractModule, contractAddress);
+
+  // deadline = now + roundDuration (seconds). The contract enforces joining before deadline.
+  const ledgerForDeadline = await getLedgerState(providers, contractAddress, contractModule);
+  const deadline = BigInt(Math.floor(Date.now() / 1000)) + ledgerForDeadline.roundDuration;
 
   const proofStart = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = await found.callTx.joinCircle(witnesses);
+  const result: any = await found.callTx.joinCircle(deadline);
   const proofGenerationMs = Date.now() - proofStart;
 
   // After joining, read back the member count to determine leaf index
   const ledger = await getLedgerState(providers, contractAddress, contractModule);
   const leafIndex = ledger.memberCount - 1;  // Just joined → count - 1
+  const blockHeight: number = result?.public?.blockHeight ?? 0;
 
   // Save complete private state (Merkle path computed on-demand from ledger in witness)
   await saveMemberState(providers.privateStateProvider, contractAddress, {
     ...preJoinState,
     leafIndex,
-    joinedAt: result.blockNumber,
+    joinedAt: blockHeight,
   });
 
   console.log(`✅ Joined circle at leaf position ${leafIndex} (payout round ${leafIndex})`);
   console.log(`   Proof generated in ${(proofGenerationMs / 1000).toFixed(1)}s`);
 
   return {
-    txHash: result.txHash,
-    blockNumber: result.blockNumber,
+    txHash: result?.public?.txHash ?? '',
+    blockNumber: blockHeight,
     proofGenerationMs,
     leafIndex,
-    commitment: result.commitment,
+    commitment: new Uint8Array(32),
   };
 }
 
@@ -229,13 +247,12 @@ export async function contribute(
   // Merkle path is computed fresh from ledger state in the witness function
   const ledger = await getLedgerState(providers, contractAddress, contractModule);
 
-  const witnesses = createWitnesses();
   const found = await getContractHandle(providers, contractModule, contractAddress);
 
   console.log(`🔐 Generating contribution proof for round ${ledger.currentRound}...`);
   const proofStart = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = await found.callTx.contribute(witnesses);
+  const result: any = await found.callTx.contribute();
   const proofGenerationMs = Date.now() - proofStart;
 
   console.log(`✅ Contributed to round ${ledger.currentRound}`);
@@ -243,8 +260,8 @@ export async function contribute(
   console.log('   Your identity is not linked to this contribution on-chain.');
 
   return {
-    txHash: result.txHash,
-    blockNumber: result.blockNumber,
+    txHash: result?.public?.txHash ?? '',
+    blockNumber: result?.public?.blockHeight ?? 0,
     proofGenerationMs,
   };
 }
@@ -278,15 +295,13 @@ export async function claimPayout(
     );
   }
 
-  // No explicit path refresh needed — witness computes path from current ledger state
-
-  const witnesses = createWitnesses();
   const found = await getContractHandle(providers, contractModule, contractAddress);
+  const nextDeadline = BigInt(Math.floor(Date.now() / 1000)) + ledger.roundDuration;
 
   console.log(`💰 Claiming payout for round ${ledger.currentRound}...`);
   const proofStart = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = await found.callTx.claimPayout(witnesses);
+  const result: any = await found.callTx.claimPayout(nextDeadline);
   const proofGenerationMs = Date.now() - proofStart;
 
   const amountReceived = ledger.contributionAmount * BigInt(ledger.memberCap);
@@ -294,8 +309,8 @@ export async function claimPayout(
   console.log(`   Proof generated in ${(proofGenerationMs / 1000).toFixed(1)}s`);
 
   return {
-    txHash: result.txHash,
-    blockNumber: result.blockNumber,
+    txHash: result?.public?.txHash ?? '',
+    blockNumber: result?.public?.blockHeight ?? 0,
     proofGenerationMs,
     amountReceived,
   };
@@ -317,7 +332,6 @@ export async function reportDefault(
   contractModule: unknown,
   defaulterLeafIndex: number,
 ): Promise<TransactionResult & { revealedCommitment: Uint8Array }> {
-  const witnesses = createWitnesses();
   const found = await getContractHandle(providers, contractModule, contractAddress);
 
   // Fetch the defaulter's commitment from the Merkle tree at their leaf index
@@ -333,14 +347,14 @@ export async function reportDefault(
 
   const proofStart = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = await found.callTx.reportDefault(witnesses, defaulterCommitment);
+  const result: any = await found.callTx.reportDefault(defaulterCommitment);
   const proofGenerationMs = Date.now() - proofStart;
 
   console.log(`✅ Default reported. Only commitment hash is on-chain — honest members stay private.`);
 
   return {
-    txHash: result.txHash,
-    blockNumber: result.blockNumber,
+    txHash: result?.public?.txHash ?? '',
+    blockNumber: result?.public?.blockHeight ?? 0,
     proofGenerationMs,
     revealedCommitment: defaulterCommitment,
   };
@@ -358,24 +372,27 @@ export async function generateParticipationProof(
   contractAddress: string,
   contractModule: unknown,
 ): Promise<TransactionResult & { receipt: Uint8Array }> {
-  const witnesses = createWitnesses();
   const found = await getContractHandle(providers, contractModule, contractAddress);
 
   console.log('📜 Generating participation proof...');
   const proofStart = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = await found.callTx.generateParticipationProof(witnesses);
+  const result: any = await found.callTx.generateParticipationProof();
   const proofGenerationMs = Date.now() - proofStart;
 
+  // The circuit returns a Bytes<32> receipt via the circuit return value,
+  // accessible as the private result field of the call transaction data.
+  const receipt: Uint8Array = result?.private?.result ?? new Uint8Array(32);
+
   console.log(`✅ Participation proof generated`);
-  console.log(`   Receipt: 0x${Buffer.from(result.receipt).toString('hex').slice(0, 32)}...`);
+  console.log(`   Receipt: 0x${Buffer.from(receipt).toString('hex').slice(0, 32)}...`);
   console.log('   Share this receipt to prove participation without revealing your identity.');
 
   return {
-    txHash: result.txHash,
-    blockNumber: result.blockNumber,
+    txHash: result?.public?.txHash ?? '',
+    blockNumber: result?.public?.blockHeight ?? 0,
     proofGenerationMs,
-    receipt: result.receipt,
+    receipt,
   };
 }
 

@@ -122,13 +122,21 @@ export function makeBrowserZkConfigProvider(buildPath = '/build'): any {
 // ─── BrowserPublicDataProvider ───────────────────────────────────────────────
 
 /**
- * Implements watchForTxData by polling the Midnight indexer GraphQL API.
- * Only watchForTxData is needed for the deploy flow.
+ * Implements the PublicDataProvider interface for browser use via the Midnight indexer GraphQL API.
+ *
+ * Implements:
+ *   - watchForTxData        — polls for call/deploy tx confirmation (used by submitTx)
+ *   - watchForDeployTxData  — polls until contract state appears (used by findDeployedContract)
+ *   - queryContractState    — fetches + deserializes current contract state (used by getLedgerState)
+ *   - queryZSwapAndContractState — fetches both states (used by getPublicStates)
+ *   - queryDeployContractState   — returns initial (= current) contract state
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function makeBrowserPublicDataProvider(indexerUrl: string): any {
   const POLL_INTERVAL_MS = 2000;
   const MAX_POLLS = 150; // ~5 minutes
+
+  // ── Transaction status query ────────────────────────────────────────────────
 
   async function queryTxStatus(txId: string) {
     const res = await fetch(indexerUrl, {
@@ -139,9 +147,9 @@ export function makeBrowserPublicDataProvider(indexerUrl: string): any {
           transactions(offset: {identifier: $transactionId}) {
             ... on RegularTransaction {
               identifiers
-              transactionResult {
-                status
-              }
+              hash
+              block { hash height }
+              transactionResult { status }
             }
           }
         }`,
@@ -153,7 +161,51 @@ export function makeBrowserPublicDataProvider(indexerUrl: string): any {
     return json?.data?.transactions?.[0] ?? null;
   }
 
+  // ── Contract action query (state + chainState) ───────────────────────────────
+
+  async function queryContractAction(contractAddress: string) {
+    const res = await fetch(indexerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `query ContractState($address: HexEncoded!) {
+          contractAction(address: $address) {
+            state
+            chainState
+            transaction {
+              ... on RegularTransaction {
+                hash
+                block { hash height }
+              }
+            }
+          }
+        }`,
+        variables: { address: contractAddress },
+      }),
+    });
+    if (!res.ok) throw new Error(`Indexer contractAction query failed: ${res.status}`);
+    const json = await res.json();
+    return json?.data?.contractAction ?? null;
+  }
+
+  // ── Deserializer helpers ──────────────────────────────────────────────────────
+
+  async function deserializeContractState(stateHex: string) {
+    const { fromHex } = await import('@midnight-ntwrk/midnight-js-utils');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { ContractState } = await import('@midnight-ntwrk/compact-runtime') as any;
+    return ContractState.deserialize(fromHex(stateHex));
+  }
+
+  async function deserializeZswapChainState(chainStateHex: string) {
+    const { fromHex } = await import('@midnight-ntwrk/midnight-js-utils');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { ZswapChainState } = await import('@midnight-ntwrk/ledger-v7') as any;
+    return ZswapChainState.deserialize(fromHex(chainStateHex));
+  }
+
   return {
+    // ── watchForTxData ────────────────────────────────────────────────────────
     async watchForTxData(txId: string) {
       for (let i = 0; i < MAX_POLLS; i++) {
         const tx = await queryTxStatus(txId);
@@ -163,9 +215,12 @@ export function makeBrowserPublicDataProvider(indexerUrl: string): any {
             raw === 'SUCCESS'         ? 'SucceedEntirely' :
             raw === 'PARTIAL_SUCCESS' ? 'FailFallible'    : 'FailEntirely';
           return {
+            tx: null as any, // eslint-disable-line @typescript-eslint/no-explicit-any
             status,
             txId,
-            identifiers: (tx.identifiers as string[] | undefined) ?? [txId],
+            txHash: tx.hash ?? txId,
+            blockHash: tx.block?.hash ?? txId,
+            blockHeight: tx.block?.height ?? 0,
           };
         }
         await new Promise<void>((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -175,27 +230,62 @@ export function makeBrowserPublicDataProvider(indexerUrl: string): any {
       );
     },
 
-    // Stubs — not needed for the deploy flow
-    async watchForDeployTxData(_contractAddress: string): Promise<never> {
-      throw new Error('watchForDeployTxData not implemented for browser');
+    // ── watchForDeployTxData ──────────────────────────────────────────────────
+    // Called by findDeployedContract — polls until the deployed contract's state appears.
+    async watchForDeployTxData(contractAddress: string) {
+      for (let i = 0; i < MAX_POLLS; i++) {
+        const action = await queryContractAction(contractAddress);
+        if (action) {
+          const tx = action.transaction;
+          return {
+            tx: null as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+            status: 'SucceedEntirely',
+            txId: contractAddress,
+            txHash: tx?.hash ?? contractAddress,
+            blockHash: tx?.block?.hash ?? contractAddress,
+            blockHeight: tx?.block?.height ?? 0,
+          };
+        }
+        await new Promise<void>((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+      throw new Error(`No contract found at ${contractAddress} after polling`);
     },
-    async queryContractState(_contractAddress: string) {
-      return null;
+
+    // ── queryContractState ────────────────────────────────────────────────────
+    // Returns the current deserialized ContractState, or null if not found.
+    async queryContractState(contractAddress: string) {
+      const action = await queryContractAction(contractAddress);
+      if (!action?.state) return null;
+      return deserializeContractState(action.state);
     },
-    async queryZSwapAndContractState(): Promise<never> {
-      throw new Error('queryZSwapAndContractState not implemented for browser');
+
+    // ── queryZSwapAndContractState ────────────────────────────────────────────
+    // Returns [ZswapChainState, ContractState] or null. Used by getPublicStates().
+    async queryZSwapAndContractState(contractAddress: string) {
+      const action = await queryContractAction(contractAddress);
+      if (!action?.state || !action?.chainState) return null;
+      const [zswapChainState, contractState] = await Promise.all([
+        deserializeZswapChainState(action.chainState),
+        deserializeContractState(action.state),
+      ]);
+      return [zswapChainState, contractState];
     },
-    async queryDeployContractState(): Promise<never> {
-      throw new Error('queryDeployContractState not implemented for browser');
+
+    // ── queryDeployContractState ──────────────────────────────────────────────
+    // Returns the initial contract state at deploy time. Since the indexer only
+    // exposes the *current* state, we return current state as a best approximation.
+    async queryDeployContractState(contractAddress: string) {
+      const action = await queryContractAction(contractAddress);
+      if (!action?.state) return null;
+      return deserializeContractState(action.state);
     },
+
+    // ── Unsupported streaming methods ────────────────────────────────────────
     async watchForContractState(): Promise<never> {
       throw new Error('watchForContractState not implemented for browser');
     },
     contractStateObservable(): never {
       throw new Error('contractStateObservable not implemented for browser');
-    },
-    async watchForTxData_stub(): Promise<never> {
-      throw new Error('watchForTxData not implemented for browser');
     },
   };
 }

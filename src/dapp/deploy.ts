@@ -16,7 +16,7 @@
 import type { deployContract as _deployContractType } from '@midnight-ntwrk/midnight-js-contracts';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import { createProviders } from './providers';
-import { createWitnesses, generateMemberSecrets, saveMemberState } from './witnesses';
+import { createWitnesses, generateMemberSecrets, saveMemberState, PRIVATE_STATE_ID } from './witnesses';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -74,25 +74,32 @@ export async function deployKoshCircle(
   console.log('📡 Submitting deployment transaction...');
   const deployStart = Date.now();
 
+  // Wrap raw contract module in a CompiledContract with attached witnesses.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { CompiledContract } = await import('@midnight-ntwrk/compact-js') as any;
+  const compiledContract = CompiledContract.withWitnesses(
+    CompiledContract.make('kosh-rosca', contractModule.Contract),
+    witnesses,
+  );
+
   // Use dynamic import to avoid compile-time binding to the strongly-typed
   // deployContract generics (which require the compiled contract type at TS time).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { deployContract } = await import('@midnight-ntwrk/midnight-js-contracts') as any;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const deployResult: any = await deployContract(
-    providers,
-    {
-      compiledContract: contractModule,
-      args: [
-        config.contributionAmount,
-        config.memberCap,
-        config.roundCount,
-        config.roundDuration,
-      ],
-      initialPrivateState: witnesses,
+  const deployResult: any = await deployContract(providers, {
+    compiledContract,
+    privateStateId: PRIVATE_STATE_ID,
+    initialPrivateState: {
+      memberSecret,
+      memberNonce,
+      leafIndex: -1,
+      circleId: '',
+      joinedAt: 0,
+      recipientIsWallet: true,
     },
-  );
+  });
 
   // FinalizedDeployTxData shape: { public: { contractAddress }, ... }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,6 +112,21 @@ export async function deployKoshCircle(
   const deployTime = ((Date.now() - deployStart) / 1000).toFixed(1);
   console.log(`✅ Contract deployed in ${deployTime}s`);
   console.log(`   Address: ${deployed.contractAddress}`);
+
+  // 5b. Initialize ROSCA parameters — createCircle must be called after deployContract
+  //     because deployContract only creates an empty initial state (no args).
+  //     For server-side/CLI use, token color defaults to the native NIGHT type (all zeros).
+  // NIGHT native token type on preview (32 zero bytes = untyped native token)
+  const tokenColor: Uint8Array = new Uint8Array(32);
+  console.log('📡 Calling createCircle...');
+  await deployResult.callTx.createCircle(
+    config.contributionAmount,
+    BigInt(config.memberCap),
+    BigInt(config.roundCount),
+    config.roundDuration,
+    tokenColor,
+  );
+  console.log('✅ Circle parameters set');
 
   // 6. Save organizer's private state under the real contract address
   await saveMemberState(providers.privateStateProvider, deployed.contractAddress, {
@@ -175,7 +197,12 @@ export async function deployFromBrowser(
   connectedApi: ConnectedAPI,
 ): Promise<{ contractAddress: string }> {
   const { createBrowserProviders } = await import('./providers');
-  const { createWitnesses: mkWitnesses, generateMemberSecrets: genSecrets } = await import('./witnesses');
+  const {
+    createWitnesses: mkWitnesses,
+    generateMemberSecrets: genSecrets,
+    PRIVATE_STATE_ID: psId,
+    saveMemberState: saveState,
+  } = await import('./witnesses');
 
   // All 6 providers including walletProvider + midnightProvider from Lace
   const providers = await createBrowserProviders(connectedApi);
@@ -188,33 +215,67 @@ export async function deployFromBrowser(
   const witnesses = mkWitnesses();
 
   // Load compiled contract from public/build/ (committed to git, served statically)
-  const contractModule = await import('../../public/build/contract/index.js');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contractModule = await import('../../public/build/contract/index.js') as any;
+
+  // Wrap raw contract module in a CompiledContract with attached witnesses.
+  // The SDK accesses compiledContract[CompactContextInternal.TypeId].ctor — passing
+  // the raw ES module causes "Cannot read properties of undefined (reading 'ctor')".
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { CompiledContract } = await import('@midnight-ntwrk/compact-js') as any;
+  const compiledContract = CompiledContract.withWitnesses(
+    CompiledContract.make('kosh-rosca', contractModule.Contract),
+    witnesses,
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { deployContract } = await import('@midnight-ntwrk/midnight-js-contracts') as any;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const deployResult: any = await deployContract(
-    providers,
-    {
-      compiledContract: contractModule,
-      args: [
-        config.contributionAmount,
-        config.memberCap,
-        config.roundCount,
-        config.roundDuration,
-      ],
-      initialPrivateState: witnesses,
+  const deployResult: any = await deployContract(providers, {
+    compiledContract,
+    privateStateId: psId,
+    initialPrivateState: {
+      memberSecret,
+      memberNonce,
+      leafIndex: -1,
+      circleId: '',       // updated below after contractAddress is known
+      joinedAt: 0,
+      recipientIsWallet: true,
     },
-  );
+  });
 
   const contractAddress: string =
     deployResult?.deployTxData?.public?.contractAddress ??
     deployResult?.contractAddress ??
     deployResult?.public?.contractAddress;
 
-  // Persist organizer's private state in-memory under the contract address
-  await saveMemberState(providers.privateStateProvider, contractAddress, {
+  if (!contractAddress) {
+    throw new Error('Deployment failed — no contract address returned');
+  }
+
+  // Initialize the ROSCA parameters by calling createCircle on the fresh contract.
+  // deployContract only creates the empty contract state; createCircle sets amount,
+  // cap, rounds, duration, and the token color (the shielded token type from Lace).
+  const shielded = await connectedApi.getShieldedBalances();
+  const rawTokenType = Object.keys(shielded)[0];
+  if (!rawTokenType) {
+    throw new Error('No shielded token balance found. Fund the wallet with tNight first.');
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { encodeRawTokenType } = await import('@midnight-ntwrk/compact-runtime') as any;
+  const tokenColor: Uint8Array = encodeRawTokenType(rawTokenType);
+
+  await deployResult.callTx.createCircle(
+    config.contributionAmount,
+    BigInt(config.memberCap),
+    BigInt(config.roundCount),
+    config.roundDuration,
+    tokenColor,
+  );
+
+  // Persist organizer's private state in-memory under the real contract address
+  await saveState(providers.privateStateProvider, contractAddress, {
     memberSecret,
     memberNonce,
     leafIndex: -1,

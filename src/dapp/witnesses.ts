@@ -8,7 +8,6 @@
  * and expects [newPrivateState, value] back. Private state is managed by PrivateStateProvider.
  */
 
-import type { PrivateStateProvider } from '@midnight-ntwrk/midnight-js-types';
 import type { WitnessContext } from '@midnight-ntwrk/compact-runtime';
 import type { Ledger, Witnesses } from '../../public/build/contract';
 
@@ -40,6 +39,15 @@ export interface MemberPrivateState {
   pendingRecipientKey?: Uint8Array;
 }
 
+// ─── Private State ID ─────────────────────────────────────────────────────────
+
+/**
+ * The key under which member private state is stored in the PrivateStateProvider.
+ * Must match the `privateStateId` passed to deployContract / findDeployedContract.
+ * The SDK scopes storage as `contractAddress:PRIVATE_STATE_ID` internally.
+ */
+export const PRIVATE_STATE_ID = 'kosh-member';
+
 // ─── State Helpers ────────────────────────────────────────────────────────────
 
 /** Generate fresh member secret and nonce for a new circle join. */
@@ -51,26 +59,33 @@ export function generateMemberSecrets(): { memberSecret: Uint8Array; memberNonce
   return { memberSecret, memberNonce };
 }
 
-/** LevelDB key for a member's private state in a given circle. */
-function stateKey(circleId: string): string {
-  return `kosh:${circleId}:memberState`;
-}
-
-/** Save member private state to the provider (LevelDB or in-memory). */
+/**
+ * Save member private state to the provider.
+ * Calls setContractAddress first so the SDK's scoped storage (contractAddress:PRIVATE_STATE_ID)
+ * matches what findDeployedContract / callTx circuits expect.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function saveMemberState(
-  provider: PrivateStateProvider<string, MemberPrivateState>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  provider: any,
   circleId: string,
   state: MemberPrivateState,
 ): Promise<void> {
-  await provider.set(stateKey(circleId), state);
+  provider.setContractAddress?.(circleId);
+  await provider.set(PRIVATE_STATE_ID, state);
 }
 
-/** Load member private state. Returns null if not joined or state was lost. */
+/**
+ * Load member private state.
+ * Calls setContractAddress first to match the SDK's scoped key lookup.
+ */
 export async function loadMemberState(
-  provider: PrivateStateProvider<string, MemberPrivateState>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  provider: any,
   circleId: string,
 ): Promise<MemberPrivateState | null> {
-  return provider.get(stateKey(circleId));
+  provider.setContractAddress?.(circleId);
+  return provider.get(PRIVATE_STATE_ID);
 }
 
 // ─── Pre-call State Mutators ──────────────────────────────────────────────────
