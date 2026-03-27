@@ -277,7 +277,7 @@ export default function CreateCirclePage() {
           </div>
 
           <p style={{ marginTop: '0.875rem', textAlign: 'center', fontSize: '0.6875rem', color: 'var(--text-faint)' }}>
-            Deploys to Midnight Preprod · Lace will prompt for approval
+            Deploys to Midnight Preview · Lace will prompt for approval
           </p>
         </>
       )}
@@ -314,13 +314,13 @@ export default function CreateCirclePage() {
               {copied ? <Check size={13} /> : <Copy size={13} />}
               {copied ? 'Copied' : 'Copy'}
             </button>
-            <a
+            <Link
               href={`/circles/${deployed}`}
               className="btn-primary"
               style={{ flex: 2, justifyContent: 'center', textDecoration: 'none' }}
             >
               Open circle <ArrowRight size={13} />
-            </a>
+            </Link>
           </div>
         </>
       )}

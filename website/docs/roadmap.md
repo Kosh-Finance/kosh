@@ -49,11 +49,12 @@ This is the trust engine. Members join, contribute anonymously, receive payouts,
 - Round-robin payouts with ZK-enforced position verification
 - Conditional default identification (only defaulter's commitment revealed)
 - Portable participation proof generation
-- Next.js frontend with Lace wallet integration
+- Next.js frontend with Lace wallet integration on Midnight **preview** testnet
+- Browser-native deployment via Lace (no Docker or local node required)
 - Full test suite (unit + integration)
 
 **Current constraints:**
-- Local dev only (network ID `undeployed`)
+- Preview testnet only (mainnet pending Midnight Hua phase)
 - Max 16 members (compile-time Merkle tree depth)
 - Round-robin payout only (no bidding)
 
