@@ -70,12 +70,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setStatus('connecting');
     setError(null);
     try {
-      // Poll for Lace Midnight injection (up to 3 s / 30 × 100 ms)
+      // Poll for Midnight wallet injection (up to 5 s / 50 × 100 ms).
+      // Try `mnLace` first (the known Lace key), then fall back to scanning
+      // all keys in window.midnight in case Lace changed its injection key.
       const lace = await (async (): Promise<InitialAPI | undefined> => {
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 50; i++) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const found = (window as any).midnight?.mnLace as InitialAPI | undefined;
-          if (found) return found;
+          const midnight = (window as any).midnight as Record<string, InitialAPI> | undefined;
+          if (midnight) {
+            if (midnight.mnLace) return midnight.mnLace;
+            // Fallback: pick any injected midnight wallet
+            const keys = Object.keys(midnight);
+            if (keys.length > 0) return midnight[keys[0]];
+          }
           await new Promise(r => setTimeout(r, 100));
         }
         return undefined;
@@ -99,7 +106,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const msg = (err as Error)?.message ?? '';
       if (!silent) {
         if (msg === 'LACE_NOT_FOUND' || msg.includes('inject') || msg.includes('undefined'))
-          setError('Lace not detected. Make sure the Lace extension is enabled and its network is set to "Preview".');
+          setError('Lace Midnight not detected. Make sure the Lace Midnight extension is enabled for this site, then try again. If using Brave, disable shields for this domain.');
         else if (msg.includes('reject') || msg.includes('denied') || msg.includes('cancel'))
           setError('Connection rejected in Lace.');
         else
