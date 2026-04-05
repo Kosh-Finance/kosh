@@ -4,6 +4,8 @@
 
 **All your finance. One place. Zero exposure.**
 
+This project is built on the Midnight Network.
+
 [App](https://app.kosh.finance) · [Docs](https://docs.kosh.finance) · [Website](https://kosh.finance) · [Twitter](https://x.com/kaborafinance)
 
 ---
