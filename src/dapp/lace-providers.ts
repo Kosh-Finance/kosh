@@ -14,6 +14,8 @@
  */
 
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
+import { parseCoinPublicKeyToHex, parseEncPublicKeyToHex, fromHex } from '@midnight-ntwrk/midnight-js-utils';
+import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -339,11 +341,17 @@ export async function createLaceProviders(api: ConnectedAPI) {
   const { shieldedCoinPublicKey, shieldedEncryptionPublicKey } =
     await api.getShieldedAddresses();
 
+  // Decode Bech32m keys to { bytes: Uint8Array } — the format the Midnight SDK's
+  // WalletProvider interface expects for coinPublicKey and encryptionPublicKey.
+  const networkId = getNetworkId();
+  const coinPublicKey   = { bytes: fromHex(parseCoinPublicKeyToHex(shieldedCoinPublicKey, networkId)) };
+  const encPublicKey    = { bytes: fromHex(parseEncPublicKeyToHex(shieldedEncryptionPublicKey, networkId)) };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const walletProvider: any = {
-    // Synchronous getters — values are pre-fetched above.
-    getCoinPublicKey:       () => shieldedCoinPublicKey,
-    getEncryptionPublicKey: () => shieldedEncryptionPublicKey,
+    // Readonly properties — SDK accesses these synchronously.
+    coinPublicKey,
+    encryptionPublicKey: encPublicKey,
 
     /**
      * Balance a proven (unbound) transaction via Lace.
@@ -351,7 +359,7 @@ export async function createLaceProviders(api: ConnectedAPI) {
      * Transaction<SignatureEnabled, Proof, Binding> (FinalizedTransaction).
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async balanceTx(provenTx: any) {
+    async balanceTx(provenTx: any, _newCoins: unknown[]) {
       const [utils, ledgerV7] = await Promise.all([
         import('@midnight-ntwrk/midnight-js-utils'),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

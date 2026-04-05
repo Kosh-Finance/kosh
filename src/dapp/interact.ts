@@ -98,7 +98,7 @@ async function getContractHandle(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapLedger(ledger: any): CircleLedgerState {
+export function mapLedger(ledger: any): CircleLedgerState {
   return {
     contributionAmount: ledger.contributionAmount,
     memberCap: Number(ledger.memberCap),
@@ -320,12 +320,13 @@ export async function claimPayout(
     );
   }
 
-  // Decode recipient shielded key from Lace wallet
+  // Decode recipient shielded key from Lace wallet.
+  // getShieldedAddresses() returns Bech32m strings; parse to hex first, then to bytes.
   const { shieldedCoinPublicKey } = await walletApi.getShieldedAddresses();
-  const { fromHex } = await import('@midnight-ntwrk/midnight-js-utils');
-  const recipientKeyBytes = fromHex(
-    shieldedCoinPublicKey.startsWith('0x') ? shieldedCoinPublicKey.slice(2) : shieldedCoinPublicKey,
-  );
+  const { parseCoinPublicKeyToHex, fromHex } = await import('@midnight-ntwrk/midnight-js-utils');
+  const { getNetworkId } = await import('@midnight-ntwrk/midnight-js-network-id');
+  const coinPkHex = parseCoinPublicKeyToHex(shieldedCoinPublicKey, getNetworkId());
+  const recipientKeyBytes = fromHex(coinPkHex);
 
   const payoutAmount = ledger.contributionAmount * BigInt(ledger.memberCap);
 

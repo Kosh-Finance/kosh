@@ -8,7 +8,12 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import type { ConnectedAPI, InitialAPI } from '@midnight-ntwrk/dapp-connector-api';
+import type { ConnectedAPI, InitialAPI, APIError } from '@midnight-ntwrk/dapp-connector-api';
+import { ErrorCodes } from '@midnight-ntwrk/dapp-connector-api';
+
+function isAPIError(err: unknown): err is APIError {
+  return typeof err === 'object' && err !== null && (err as any).type === 'DAppConnectorAPIError';
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -103,16 +108,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       await readBalances(api);
     } catch (err: unknown) {
       sessionStorage.removeItem('kosh:wallet:connected');
-      const msg = (err as Error)?.message ?? '';
       if (!silent) {
-        if (msg === 'LACE_NOT_FOUND')
-          setError('Lace Midnight extension not found. Install it from lace.io, enable it for this site, and make sure Brave shields are off for this domain.');
-        else if (msg.includes('reject') || msg.includes('denied') || msg.includes('cancel') || msg.includes('user'))
-          setError('Connection rejected. Approve the request in your Lace wallet to continue.');
-        else if (msg.toLowerCase().includes('network') || msg.toLowerCase().includes('preprod'))
-          setError('Wrong network. Switch your Lace wallet to the Midnight Preprod network and try again.');
-        else
-          setError(msg || 'Failed to connect to Lace.');
+        if (isAPIError(err)) {
+          const { code, reason } = err;
+          if (code === ErrorCodes.Rejected || code === ErrorCodes.PermissionRejected)
+            setError('Connection rejected. Approve the request in your Lace wallet to continue.');
+          else if (code === ErrorCodes.InvalidRequest)
+            setError(`Invalid request: ${reason}. Make sure your Lace wallet is on the Midnight Preprod network.`);
+          else if (code === ErrorCodes.Disconnected)
+            setError('Wallet disconnected. Unlock your Lace wallet and try again.');
+          else
+            setError(reason || err.message || 'Lace wallet error. Try again.');
+        } else {
+          const msg = (err as Error)?.message ?? '';
+          if (msg === 'LACE_NOT_FOUND')
+            setError('Lace Midnight extension not found. Install it from lace.io, enable it for this site, and make sure Brave shields are off for this domain.');
+          else if (msg.toLowerCase().includes('network') || msg.toLowerCase().includes('preprod'))
+            setError('Wrong network. Switch your Lace wallet to the Midnight Preprod network and try again.');
+          else
+            setError(msg || 'Failed to connect to Lace.');
+        }
         setStatus('error');
       } else {
         setStatus('disconnected');
