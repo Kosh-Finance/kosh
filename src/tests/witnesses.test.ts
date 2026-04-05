@@ -19,11 +19,15 @@ import {
 // ─── In-memory mock provider (matches PrivateStateProvider.set/get API) ────────
 
 function createMockProvider() {
+  // Scoped store: tracks current contract address so the same key under
+  // different addresses is stored separately (mirrors the real SDK provider).
   const store = new Map<string, MemberPrivateState>();
+  let currentAddress = '';
   return {
-    async set(key: string, value: MemberPrivateState) { store.set(key, value); },
-    async get(key: string) { return store.get(key) ?? null; },
-    async delete(key: string) { store.delete(key); },
+    setContractAddress(addr: string) { currentAddress = addr; },
+    async set(key: string, value: MemberPrivateState) { store.set(`${currentAddress}:${key}`, value); },
+    async get(key: string) { return store.get(`${currentAddress}:${key}`) ?? null; },
+    async delete(key: string) { store.delete(`${currentAddress}:${key}`); },
     store, // expose for assertions
   } as any;
 }
