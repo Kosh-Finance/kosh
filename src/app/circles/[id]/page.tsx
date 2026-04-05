@@ -24,6 +24,16 @@ export default function CircleDashboardPage() {
   const [showDefaultForm, setShowDefaultForm]     = useState(false);
   const [participationReceipt, setReceipt]        = useState<string | null>(null);
 
+  // Load a previously generated receipt for this circle from localStorage
+  useEffect(() => {
+    if (!contractAddress) return;
+    try {
+      const receipts = JSON.parse(localStorage.getItem('kosh:receipts') ?? '[]');
+      const existing = receipts.find((r: any) => r.contractAddress === contractAddress);
+      if (existing) setReceipt(existing.receipt);
+    } catch { /* ignore */ }
+  }, [contractAddress]);
+
   const { ledger, loading, proofState, proofElapsedMs, error, isMember, isMyPayoutRound } = contract;
   const isGenerating = proofState === 'generating' || proofState === 'submitting';
 
@@ -51,7 +61,17 @@ export default function CircleDashboardPage() {
 
   async function handleGenerateProof() {
     const receipt = await contract.generateParticipationProof();
-    setReceipt(receipt);
+    if (receipt && contractAddress) {
+      setReceipt(receipt);
+      try {
+        const receipts = JSON.parse(localStorage.getItem('kosh:receipts') ?? '[]');
+        const idx = receipts.findIndex((r: any) => r.contractAddress === contractAddress);
+        const entry = { contractAddress, receipt, generatedAt: Date.now() };
+        if (idx === -1) receipts.unshift(entry);
+        else receipts[idx] = entry;
+        localStorage.setItem('kosh:receipts', JSON.stringify(receipts.slice(0, 50)));
+      } catch { /* ignore */ }
+    }
   }
 
   async function handleReportDefault(e: React.FormEvent) {

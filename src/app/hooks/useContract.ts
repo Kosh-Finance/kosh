@@ -183,9 +183,10 @@ export function useContract(
         providersRef.current,
         contractAddress,
         contractModuleRef.current,
+        walletApi,
       );
     });
-  }, [contractAddress]);
+  }, [contractAddress, walletApi]);
 
   const reportDefault = useCallback(async (defaulterLeafIndex: number) => {
     if (!contractAddress) return;

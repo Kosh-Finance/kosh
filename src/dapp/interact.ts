@@ -21,20 +21,29 @@ import {
   generateMemberSecrets,
   loadMemberState,
   saveMemberState,
+  prepareContribution,
+  preparePayout,
   PRIVATE_STATE_ID,
 } from './witnesses';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// Mirrors the Compact CircleStatus enum
+// Mirrors the Compact CircleStatus enum (numeric: 0=OPEN, 1=ROUND_IN_PROGRESS, 2=PAYOUT_PENDING, 3=DEFAULT_DETECTED, 4=COMPLETED)
 export enum CircleStatus {
   OPEN = 'OPEN',
-  ACTIVE = 'ACTIVE',
   ROUND_IN_PROGRESS = 'ROUND_IN_PROGRESS',
   PAYOUT_PENDING = 'PAYOUT_PENDING',
   DEFAULT_DETECTED = 'DEFAULT_DETECTED',
   COMPLETED = 'COMPLETED',
 }
+
+const STATUS_MAP: Record<number, CircleStatus> = {
+  0: CircleStatus.OPEN,
+  1: CircleStatus.ROUND_IN_PROGRESS,
+  2: CircleStatus.PAYOUT_PENDING,
+  3: CircleStatus.DEFAULT_DETECTED,
+  4: CircleStatus.COMPLETED,
+};
 
 // Public ledger state — mirrors rosca.compact ledger declarations
 export interface CircleLedgerState {
@@ -49,6 +58,7 @@ export interface CircleLedgerState {
   roundDeadline: bigint;
   payoutClaimed: boolean;
   merkleRoot: Uint8Array;
+  tokenColor: Uint8Array;
 }
 
 export interface TransactionResult {
@@ -95,12 +105,13 @@ function mapLedger(ledger: any): CircleLedgerState {
     roundCount: Number(ledger.roundCount),
     roundDuration: ledger.roundDuration,
     currentRound: Number(ledger.currentRound),
-    circleStatus: ledger.circleStatus as CircleStatus,
+    circleStatus: STATUS_MAP[Number(ledger.circleStatus)] ?? CircleStatus.OPEN,
     memberCount: Number(ledger.memberCount),
     contributionsThisRound: Number(ledger.contributionsThisRound),
     roundDeadline: ledger.roundDeadline,
     payoutClaimed: ledger.payoutClaimed,
     merkleRoot: ledger.memberTree.root,
+    tokenColor: ledger.tokenColor,
   };
 }
 
@@ -247,6 +258,16 @@ export async function contribute(
   // Merkle path is computed fresh from ledger state in the witness function
   const ledger = await getLedgerState(providers, contractAddress, contractModule);
 
+  // Set up the contribution coin witnesses require before the circuit runs.
+  // The nonce is fresh random bytes — Lace's balanceTx will replace this virtual
+  // coin with a real on-chain UTXO when balancing the transaction.
+  const preparedState = prepareContribution(state, {
+    nonce: crypto.getRandomValues(new Uint8Array(32)),
+    color: ledger.tokenColor,
+    value: ledger.contributionAmount,
+  });
+  await saveMemberState(providers.privateStateProvider, contractAddress, preparedState);
+
   const found = await getContractHandle(providers, contractModule, contractAddress);
 
   console.log(`🔐 Generating contribution proof for round ${ledger.currentRound}...`);
@@ -272,11 +293,15 @@ export async function contribute(
  * Claim the full pool payout for the current round.
  * Only available when circleStatus == PAYOUT_PENDING AND
  * the caller's leaf index matches the current round number.
+ *
+ * @param walletApi - Connected Lace wallet API (for recipient shielded key)
  */
 export async function claimPayout(
   providers: KoshProviders,
   contractAddress: string,
   contractModule: unknown,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  walletApi: any,
 ): Promise<TransactionResult & { amountReceived: bigint }> {
   const state = await loadMemberState(providers.privateStateProvider, contractAddress);
   if (!state || state.leafIndex < 0) {
@@ -294,6 +319,31 @@ export async function claimPayout(
       `Not your payout round. Your round: ${state.leafIndex}, current: ${ledger.currentRound}`,
     );
   }
+
+  // Decode recipient shielded key from Lace wallet
+  const { shieldedCoinPublicKey } = await walletApi.getShieldedAddresses();
+  const { fromHex } = await import('@midnight-ntwrk/midnight-js-utils');
+  const recipientKeyBytes = fromHex(
+    shieldedCoinPublicKey.startsWith('0x') ? shieldedCoinPublicKey.slice(2) : shieldedCoinPublicKey,
+  );
+
+  const payoutAmount = ledger.contributionAmount * BigInt(ledger.memberCap);
+
+  // Set up the payout coin witnesses require before the circuit runs.
+  // The nonce is fresh random bytes; mt_index 0n is a placeholder that Lace replaces
+  // when balancing (the contract emits the actual shielded output UTXO).
+  const preparedState = preparePayout(
+    state,
+    {
+      nonce: crypto.getRandomValues(new Uint8Array(32)),
+      color: ledger.tokenColor,
+      value: payoutAmount,
+      mt_index: 0n,
+    },
+    recipientKeyBytes,
+    true, // recipient is wallet (ZswapCoinPublicKey)
+  );
+  await saveMemberState(providers.privateStateProvider, contractAddress, preparedState);
 
   const found = await getContractHandle(providers, contractModule, contractAddress);
   const nextDeadline = BigInt(Math.floor(Date.now() / 1000)) + ledger.roundDuration;

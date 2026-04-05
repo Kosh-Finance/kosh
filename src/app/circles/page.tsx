@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowRight, Plus, Lock } from 'lucide-react';
+import { ArrowRight, Plus, Lock, Shield } from 'lucide-react';
 import { formatAddress } from '@/app/hooks/useWallet';
 
 interface RecentCircle {
@@ -12,16 +12,27 @@ interface RecentCircle {
   leafIndex: number;
 }
 
+interface ParticipationReceipt {
+  contractAddress: string;
+  receipt: string;
+  generatedAt: number;
+}
+
 export default function CirclesPage() {
   const router = useRouter();
   const [addr, setAddr]   = useState('');
   const [err, setErr]     = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentCircle[]>([]);
+  const [receipts, setReceipts] = useState<ParticipationReceipt[]>([]);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem('kosh:recent-circles');
       if (raw) setRecent(JSON.parse(raw));
+    } catch { /* ignore */ }
+    try {
+      const raw = localStorage.getItem('kosh:receipts');
+      if (raw) setReceipts(JSON.parse(raw));
     } catch { /* ignore */ }
   }, []);
 
@@ -154,6 +165,58 @@ export default function CirclesPage() {
                   )}
                   <ArrowRight size={12} color="var(--text-faint)" />
                 </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Participation History */}
+      {receipts.length > 0 && (
+        <div style={{ marginTop: recent.length > 0 ? '2.5rem' : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem' }}>
+            <Shield size={11} color="var(--violet)" />
+            <p className="label" style={{ color: 'var(--violet)' }}>Participation history</p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+            {receipts.map(r => (
+              <Link
+                key={r.contractAddress}
+                href={`/circles/${r.contractAddress}`}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '0.75rem 1rem',
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  textDecoration: 'none', gap: '1rem',
+                  transition: 'border-color var(--t-fast), background var(--t-fast)',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-violet)';
+                  (e.currentTarget as HTMLElement).style.background  = 'var(--surface-hover)';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)';
+                  (e.currentTarget as HTMLElement).style.background  = 'var(--surface)';
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Shield size={9} color="var(--violet)" />
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' }}>
+                      {formatAddress(r.contractAddress, 12)}
+                    </span>
+                    <span className="badge badge-violet" style={{ fontSize: '0.625rem' }}>Completed</span>
+                  </div>
+                  <span style={{
+                    fontFamily: 'var(--font-mono)', fontSize: '0.6875rem',
+                    color: 'var(--text-faint)',
+                    paddingLeft: '1.125rem',
+                  }}>
+                    Receipt: 0x{r.receipt.slice(0, 16)}…
+                  </span>
+                </div>
+                <ArrowRight size={12} color="var(--text-faint)" style={{ flexShrink: 0 }} />
               </Link>
             ))}
           </div>
