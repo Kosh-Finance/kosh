@@ -13,7 +13,7 @@ Kosh runs entirely in the browser at [app.kosh.finance](https://app.kosh.finance
 
 Open [app.kosh.finance](https://app.kosh.finance) in Chrome. Click **Connect Wallet** in the top-right navigation bar.
 
-Kosh polls for the Lace Midnight extension (up to 5 seconds). Once detected, it calls `lace.connect('preview')` and requests permission to read your shielded address. Approve the connection in the Lace popup.
+Kosh polls for the Lace Midnight extension (up to 8 seconds). Once detected, it calls `lace.connect('preprod')` and requests permission to read your shielded address. Approve the connection in the Lace popup.
 
 The navbar shows your NIGHT and DUST balances once connected.
 
@@ -41,8 +41,8 @@ Click **Deploy Circle**. This runs `deployFromBrowser()` entirely in the browser
 
 **Expect:** ~20–40 seconds including proof generation and on-chain confirmation.
 
-:::info Preview network
-All circles are deployed on Midnight's public **preview** testnet. NIGHT and DUST are test tokens with no real value. Get them from the [Midnight faucet](https://faucet.midnight.network).
+:::info Preprod network
+All circles are deployed on Midnight's public **preprod** testnet. NIGHT and DUST are test tokens with no real value. Get them from the [Midnight faucet](https://faucet.midnight.network).
 :::
 
 ### 3. Join a Circle

@@ -107,7 +107,7 @@ export default function AppNav() {
                 }}>
                   <Shield size={10} color="var(--violet)" />
                   <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                    Midnight · Preview
+                    Midnight · Preprod
                   </span>
                 </div>
 

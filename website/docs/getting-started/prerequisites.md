@@ -15,11 +15,11 @@ Kosh runs entirely in the browser via the [Lace Midnight](https://www.lace.io/) 
 
 1. Install **Lace** from the Chrome Web Store
 2. Open Lace → switch to the **Midnight** tab
-3. Set network to **Preview**
+3. Set network to **Preprod**
 4. Fund your wallet with test NIGHT and DUST from the [Midnight faucet](https://faucet.midnight.network)
 
-:::info Preview network
-Kosh is deployed on Midnight's public **preview** testnet. Lace must be on the "Preview" network — not "Undeployed" (which is for local Docker dev only).
+:::info Preprod network
+Kosh is deployed on Midnight's public **preprod** testnet. Lace must be on the "Preprod" network — not "Preview" or "Undeployed" (which is for local Docker dev only).
 :::
 
 :::tip Brave browser

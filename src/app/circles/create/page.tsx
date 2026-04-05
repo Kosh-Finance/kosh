@@ -104,7 +104,7 @@ export default function CreateCirclePage() {
       {status !== 'connected' && step !== 'done' && (
         <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-            Connect Lace to deploy on Midnight preview.
+            Connect Lace to deploy on Midnight preprod.
           </p>
           <button
             className="btn-primary"
@@ -277,7 +277,7 @@ export default function CreateCirclePage() {
           </div>
 
           <p style={{ marginTop: '0.875rem', textAlign: 'center', fontSize: '0.6875rem', color: 'var(--text-faint)' }}>
-            Deploys to Midnight Preview · Lace will prompt for approval
+            Deploys to Midnight Preprod · Lace will prompt for approval
           </p>
         </>
       )}
@@ -291,7 +291,7 @@ export default function CreateCirclePage() {
           </div>
           <ZkProofSpinner label="Deploying contract" elapsedMs={elapsed} />
           <p style={{ marginTop: '1.25rem', fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-            Generating ZK proof and submitting to Midnight preview. Lace will ask you to approve the transaction.
+            Generating ZK proof and submitting to Midnight preprod. Lace will ask you to approve the transaction.
           </p>
         </>
       )}

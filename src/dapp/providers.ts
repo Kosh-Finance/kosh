@@ -23,17 +23,17 @@ import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 // Re-export provider types so callers don't need a separate import
 export type { PrivateStateProvider, PublicDataProvider, ZKConfigProvider, ProofProvider };
 
-// Set network to Midnight preview — must happen before any SDK calls
-setNetworkId('preview');
+// Set network to Midnight preprod — must happen before any SDK calls
+setNetworkId((process.env.NEXT_PUBLIC_NETWORK_ID ?? 'preprod') as any);
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
 export const ENV = {
-  INDEXER_URL:        process.env.NEXT_PUBLIC_INDEXER_URL      ?? 'https://indexer.preview.midnight.network/api/v3/graphql',
-  INDEXER_WS_URL:     process.env.NEXT_PUBLIC_INDEXER_WS_URL   ?? 'wss://indexer.preview.midnight.network/api/v3/graphql/ws',
-  NODE_URL:           process.env.NEXT_PUBLIC_NODE_URL          ?? 'https://rpc.preview.midnight.network',
-  PROOF_SERVER_URL:   process.env.NEXT_PUBLIC_PROOF_SERVER_URL  ?? 'https://proof-server.preview.midnight.network',
-  NETWORK_ID:         process.env.NEXT_PUBLIC_NETWORK_ID        ?? 'preview',
+  INDEXER_URL:        process.env.NEXT_PUBLIC_INDEXER_URL      ?? 'https://indexer.preprod.midnight.network/api/v3/graphql',
+  INDEXER_WS_URL:     process.env.NEXT_PUBLIC_INDEXER_WS_URL   ?? 'wss://indexer.preprod.midnight.network/api/v3/graphql/ws',
+  NODE_URL:           process.env.NEXT_PUBLIC_NODE_URL          ?? 'https://rpc.preprod.midnight.network',
+  PROOF_SERVER_URL:   process.env.NEXT_PUBLIC_PROOF_SERVER_URL  ?? 'https://proof-server.preprod.midnight.network',
+  NETWORK_ID:         process.env.NEXT_PUBLIC_NETWORK_ID        ?? 'preprod',
   PRIVATE_STATE_PATH: process.env.PRIVATE_STATE_PATH            ?? '~/.kosh/state',
 } as const;
 

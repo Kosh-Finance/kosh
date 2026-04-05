@@ -74,7 +74,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // Try `mnLace` first (the known Lace key), then fall back to scanning
       // all keys in window.midnight in case Lace changed its injection key.
       const lace = await (async (): Promise<InitialAPI | undefined> => {
-        for (let i = 0; i < 50; i++) {
+        for (let i = 0; i < 80; i++) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const midnight = (window as any).midnight as Record<string, InitialAPI> | undefined;
           if (midnight) {
@@ -90,7 +90,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       if (!lace) throw new Error('LACE_NOT_FOUND');
 
-      const api   = await lace.connect('preview');
+      const api   = await lace.connect('preprod');
       const addrs = await api.getShieldedAddresses();
       const cfg   = await api.getConfiguration();
       sessionStorage.setItem('kosh:wallet:config', JSON.stringify(cfg));
@@ -105,12 +105,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       sessionStorage.removeItem('kosh:wallet:connected');
       const msg = (err as Error)?.message ?? '';
       if (!silent) {
-        if (msg === 'LACE_NOT_FOUND' || msg.includes('inject') || msg.includes('undefined'))
-          setError('Lace Midnight not detected. Make sure the Lace Midnight extension is enabled for this site, then try again. If using Brave, disable shields for this domain.');
-        else if (msg.includes('reject') || msg.includes('denied') || msg.includes('cancel'))
-          setError('Connection rejected in Lace.');
+        if (msg === 'LACE_NOT_FOUND')
+          setError('Lace Midnight extension not found. Install it from lace.io, enable it for this site, and make sure Brave shields are off for this domain.');
+        else if (msg.includes('reject') || msg.includes('denied') || msg.includes('cancel') || msg.includes('user'))
+          setError('Connection rejected. Approve the request in your Lace wallet to continue.');
+        else if (msg.toLowerCase().includes('network') || msg.toLowerCase().includes('preprod'))
+          setError('Wrong network. Switch your Lace wallet to the Midnight Preprod network and try again.');
         else
-          setError(msg || 'Failed to connect.');
+          setError(msg || 'Failed to connect to Lace.');
         setStatus('error');
       } else {
         setStatus('disconnected');

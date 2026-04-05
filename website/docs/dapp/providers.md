@@ -36,8 +36,8 @@ This calls `createAllBrowserProviders()` from `src/dapp/lace-providers.ts`, whic
 - **`walletProvider`** — delegates `balanceTx` to `api.balanceUnsealedTransaction()`
 - **`midnightProvider`** — delegates `submitTx` to `api.submitTransaction()`
 - **`zkConfigProvider`** — fetches ZK keys from `/build/keys/` and `/build/zkir/` (served statically)
-- **`proofProvider`** — sends proof requests to `https://proof-server.preview.midnight.network`
-- **`publicDataProvider`** — reads state from the preview Indexer GraphQL endpoint
+- **`proofProvider`** — sends proof requests to `https://proof-server.preprod.midnight.network`
+- **`publicDataProvider`** — reads state from the preprod Indexer GraphQL endpoint
 - **`privateStateProvider`** — stores member secrets in-memory during the browser session
 
 ```typescript
@@ -83,14 +83,14 @@ The Node.js providers do **not** include `walletProvider` or `midnightProvider` 
 All endpoint URLs are configurable via `.env.local`:
 
 ```env
-NEXT_PUBLIC_INDEXER_URL=https://indexer.preview.midnight.network/api/v3/graphql
-NEXT_PUBLIC_INDEXER_WS_URL=wss://indexer.preview.midnight.network/api/v3/graphql/ws
-NEXT_PUBLIC_NODE_URL=https://rpc.preview.midnight.network
-NEXT_PUBLIC_PROOF_SERVER_URL=https://proof-server.preview.midnight.network
-NEXT_PUBLIC_NETWORK_ID=preview
+NEXT_PUBLIC_INDEXER_URL=https://indexer.preprod.midnight.network/api/v3/graphql
+NEXT_PUBLIC_INDEXER_WS_URL=wss://indexer.preprod.midnight.network/api/v3/graphql/ws
+NEXT_PUBLIC_NODE_URL=https://rpc.preprod.midnight.network
+NEXT_PUBLIC_PROOF_SERVER_URL=https://proof-server.preprod.midnight.network
+NEXT_PUBLIC_NETWORK_ID=preprod
 ```
 
-If no `.env.local` is present, these preview network defaults are used. For local Docker dev, override with `localhost` URLs and set `NEXT_PUBLIC_NETWORK_ID=undeployed`.
+If no `.env.local` is present, these preprod network defaults are used. For local Docker dev, override with `localhost` URLs and set `NEXT_PUBLIC_NETWORK_ID=undeployed`.
 
 ## Lace Wallet Config
 
@@ -110,7 +110,7 @@ The network ID must be set once before any SDK calls:
 ```typescript
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
-setNetworkId('preview');  // Set at module load time in providers.ts
+setNetworkId('preprod');  // Set at module load time in providers.ts
 ```
 
-The network ID affects shielded address encoding and is validated by the Lace wallet. Use `preview` for the public testnet, `undeployed` for local Docker dev.
+The network ID affects shielded address encoding and is validated by the Lace wallet. Use `preprod` for the beta testnet, `undeployed` for local Docker dev.
