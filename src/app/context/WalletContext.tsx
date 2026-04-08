@@ -19,7 +19,10 @@ function isAPIError(err: unknown): err is APIError {
 
 export interface WalletState {
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
+  /** Unshielded address — what Lace displays as "Wallet address" (mn_addr_preprod1…) */
   address: string | null;
+  /** Shielded address — the ZK identity address (mn_shield-addr_preprod1…) */
+  shieldedAddress: string | null;
   connectedApi: ConnectedAPI | null;
   nightBalance: bigint | null;
   dustBalance: bigint | null;
@@ -34,6 +37,7 @@ export interface WalletState {
 const WalletContext = createContext<WalletState>({
   status: 'disconnected',
   address: null,
+  shieldedAddress: null,
   connectedApi: null,
   nightBalance: null,
   dustBalance: null,
@@ -50,12 +54,13 @@ export function useWallet(): WalletState {
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus]             = useState<WalletState['status']>('disconnected');
-  const [address, setAddress]           = useState<string | null>(null);
-  const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
-  const [nightBalance, setNightBalance] = useState<bigint | null>(null);
-  const [dustBalance, setDustBalance]   = useState<bigint | null>(null);
-  const [error, setError]               = useState<string | null>(null);
+  const [status, setStatus]                   = useState<WalletState['status']>('disconnected');
+  const [address, setAddress]                 = useState<string | null>(null);
+  const [shieldedAddress, setShieldedAddress] = useState<string | null>(null);
+  const [connectedApi, setConnectedApi]       = useState<ConnectedAPI | null>(null);
+  const [nightBalance, setNightBalance]       = useState<bigint | null>(null);
+  const [dustBalance, setDustBalance]         = useState<bigint | null>(null);
+  const [error, setError]                     = useState<string | null>(null);
 
   async function readBalances(api: ConnectedAPI) {
     try {
@@ -95,13 +100,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       if (!lace) throw new Error('LACE_NOT_FOUND');
 
-      const api   = await lace.connect('preprod');
-      const addrs = await api.getShieldedAddresses();
-      const cfg   = await api.getConfiguration();
+      const api = await lace.connect('preprod');
+
+      // Fetch both address types and wallet config in parallel
+      const [addrs, unshielded, cfg] = await Promise.all([
+        api.getShieldedAddresses(),
+        api.getUnshieldedAddress(),
+        api.getConfiguration(),
+      ]);
+
       sessionStorage.setItem('kosh:wallet:config', JSON.stringify(cfg));
+      // Persist display address so auto-reconnect restores it without re-calling the API
+      sessionStorage.setItem('kosh:wallet:address', unshielded.unshieldedAddress ?? '');
+      sessionStorage.setItem('kosh:wallet:shielded', addrs.shieldedAddress ?? '');
 
       setConnectedApi(api);
-      setAddress(addrs.shieldedAddress ?? null);
+      setAddress(unshielded.unshieldedAddress ?? null);
+      setShieldedAddress(addrs.shieldedAddress ?? null);
       setStatus('connected');
       sessionStorage.setItem('kosh:wallet:connected', 'true');
 
@@ -140,26 +155,34 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(() => {
     setStatus('disconnected');
     setAddress(null);
+    setShieldedAddress(null);
     setConnectedApi(null);
     setNightBalance(null);
     setDustBalance(null);
     setError(null);
     sessionStorage.removeItem('kosh:wallet:connected');
+    sessionStorage.removeItem('kosh:wallet:address');
+    sessionStorage.removeItem('kosh:wallet:shielded');
   }, []);
 
   const refreshBalance = useCallback(async () => {
     if (connectedApi) await readBalances(connectedApi);
   }, [connectedApi]);
 
-  // Auto-reconnect on mount if previously connected
+  // Auto-reconnect on mount if previously connected.
+  // Restore cached addresses immediately so the UI isn't blank during the silent reconnect.
   useEffect(() => {
     if (sessionStorage.getItem('kosh:wallet:connected') === 'true') {
+      const cached          = sessionStorage.getItem('kosh:wallet:address');
+      const cachedShielded  = sessionStorage.getItem('kosh:wallet:shielded');
+      if (cached)         setAddress(cached);
+      if (cachedShielded) setShieldedAddress(cachedShielded);
       void connectInternal(true);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <WalletContext.Provider value={{ status, address, connectedApi, nightBalance, dustBalance, error, connect, disconnect, refreshBalance }}>
+    <WalletContext.Provider value={{ status, address, shieldedAddress, connectedApi, nightBalance, dustBalance, error, connect, disconnect, refreshBalance }}>
       {children}
     </WalletContext.Provider>
   );

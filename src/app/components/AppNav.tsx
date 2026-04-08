@@ -8,15 +8,14 @@ import { useWallet } from '@/app/context/WalletContext';
 
 export default function AppNav() {
   const pathname = usePathname();
-  const { status, address, error, connect, disconnect } = useWallet();
-  const [copied, setCopied]         = useState(false);
+  const { status, address, shieldedAddress, error, connect, disconnect } = useWallet();
+  const [copied, setCopied]             = useState<'unshielded' | 'shielded' | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
 
-  async function copyAddress() {
-    if (!address) return;
-    await navigator.clipboard.writeText(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  async function copyAddress(value: string, type: 'unshielded' | 'shielded') {
+    await navigator.clipboard.writeText(value);
+    setCopied(type);
+    setTimeout(() => setCopied(null), 1500);
   }
 
   const isActive = (path: string) => pathname?.startsWith(path);
@@ -63,7 +62,7 @@ export default function AppNav() {
             {showDropdown && (
               <div style={{
                 position: 'absolute', top: 'calc(100% + 8px)', right: 0,
-                width: 256,
+                width: 280,
                 background: '#0D0E14',
                 border: '1px solid var(--border)',
                 borderRadius: 'var(--radius-lg)',
@@ -71,39 +70,35 @@ export default function AppNav() {
                 zIndex: 100,
                 boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
               }}>
+
+                {/* Wallet address (unshielded) */}
                 <p className="label" style={{ marginBottom: '0.5rem', padding: '0 0.125rem' }}>
-                  Shielded Address
+                  Wallet address
                 </p>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  padding: '0.5rem 0.75rem',
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  marginBottom: '0.75rem',
-                }}>
-                  <span style={{
-                    fontFamily: 'var(--font-mono)', fontSize: '0.625rem',
-                    color: 'var(--text-muted)', flex: 1,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {address}
-                  </span>
-                  <button
-                    onClick={copyAddress}
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0,
-                      color: copied ? 'var(--green)' : 'var(--text-faint)',
-                      transition: 'color var(--t-fast)',
-                    }}
-                  >
-                    {copied ? <Check size={12} /> : <Copy size={12} />}
-                  </button>
-                </div>
+                <AddressRow
+                  value={address}
+                  copied={copied === 'unshielded'}
+                  onCopy={() => copyAddress(address, 'unshielded')}
+                />
+
+                {/* Shielded address */}
+                {shieldedAddress && (
+                  <>
+                    <p className="label" style={{ margin: '0.75rem 0 0.5rem', padding: '0 0.125rem' }}>
+                      Shielded address
+                    </p>
+                    <AddressRow
+                      value={shieldedAddress}
+                      copied={copied === 'shielded'}
+                      onCopy={() => copyAddress(shieldedAddress, 'shielded')}
+                      dim
+                    />
+                  </>
+                )}
 
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '0.375rem',
-                  padding: '0 0.125rem', marginBottom: '0.75rem',
+                  padding: '0 0.125rem', margin: '0.75rem 0',
                 }}>
                   <Shield size={10} color="var(--violet)" />
                   <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
@@ -183,6 +178,50 @@ export default function AppNav() {
   );
 }
 
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
+
+function AddressRow({
+  value,
+  copied,
+  onCopy,
+  dim = false,
+}: {
+  value: string;
+  copied: boolean;
+  onCopy: () => void;
+  dim?: boolean;
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '0.5rem',
+      padding: '0.5rem 0.75rem',
+      background: 'var(--surface)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-sm)',
+    }}>
+      <span style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: dim ? '0.5625rem' : '0.625rem',
+        color: dim ? 'var(--text-faint)' : 'var(--text-muted)',
+        flex: 1,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {value}
+      </span>
+      <button
+        onClick={onCopy}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0,
+          color: copied ? 'var(--green)' : 'var(--text-faint)',
+          transition: 'color var(--t-fast)',
+        }}
+      >
+        {copied ? <Check size={12} /> : <Copy size={12} />}
+      </button>
+    </div>
+  );
+}
+
 function NavLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
   return (
     <Link
@@ -204,6 +243,8 @@ function NavLink({ href, active, children }: { href: string; active: boolean; ch
   );
 }
 
+/** First 12 + last 6 — shows network prefix and a recognisable tail.
+ *  e.g. mn_addr_prepr…xa47y5 */
 function shorten(addr: string): string {
-  return addr.length <= 12 ? addr : `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+  return addr.length <= 18 ? addr : `${addr.slice(0, 12)}…${addr.slice(-6)}`;
 }
