@@ -116,7 +116,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       setConnectedApi(api);
       setAddress(unshielded.unshieldedAddress ?? null);
-      setShieldedAddress(addrs.shieldedAddress ?? null);
+      setShieldedAddress(addrs.shieldedCoinPublicKey ?? null);
       setStatus('connected');
       sessionStorage.setItem('kosh:wallet:connected', 'true');
 

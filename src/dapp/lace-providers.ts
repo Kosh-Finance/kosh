@@ -349,9 +349,13 @@ export async function createLaceProviders(api: ConnectedAPI) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const walletProvider: any = {
-    // Readonly properties — SDK accesses these synchronously.
+    // Readonly properties — newer midnight-js-types accesses these as properties.
     coinPublicKey,
     encryptionPublicKey: encPublicKey,
+    // Method forms — older midnight-js-types (bundled inside midnight-js-contracts)
+    // calls getCoinPublicKey() and getEncryptionPublicKey() as methods.
+    getCoinPublicKey()       { return coinPublicKey; },
+    getEncryptionPublicKey() { return encPublicKey; },
 
     /**
      * Balance a proven (unbound) transaction via Lace.
