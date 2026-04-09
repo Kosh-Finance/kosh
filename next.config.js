@@ -21,50 +21,28 @@ const nextConfig = {
   // Node.js-only SDK packages — don't bundle server-side either
   serverExternalPackages: [
     '@midnight-ntwrk/midnight-js-level-private-state-provider',
-    '@midnight-ntwrk/midnight-js-contracts',
-    '@midnight-ntwrk/compact-runtime',
-    '@midnight-ntwrk/ledger-v7',
-    '@midnight-ntwrk/ledger-v8',
-    '@midnight-ntwrk/compact-js',
     'classic-level',
     'level',
   ],
 
   webpack: (config, { isServer }) => {
-    // Enable async WASM modules (ledger-v7, zkir-v2, etc.)
+    // Enable async WASM modules (ledger-v8 ships .wasm)
     config.experiments = { ...config.experiments, asyncWebAssembly: true };
 
-    // Fix: @midnight-ntwrk/compact-runtime has `"types"` after `"default"` in its
-    // package.json exports field, which webpack rejects with "Default condition should
+    // Fix: @midnight-ntwrk/compact-runtime 0.15 still has `"types"` after `"default"`
+    // in its package.json exports, which webpack rejects with "Default condition should
     // be last one". Alias directly to the dist file to bypass exports resolution.
-    //
-    // @midnight-ntwrk/ledger is a virtual peer dep re-exported by midnight-js-types.
-    // Deduplicate ledger-v7 so compact-js (which nests its own 7.0.0) uses the
-    // top-level 7.0.2 and we only load one copy of the 10 MB WASM.
     config.resolve.alias = {
       ...config.resolve.alias,
       '@midnight-ntwrk/compact-runtime': path.resolve(
         __dirname,
         'node_modules/@midnight-ntwrk/compact-runtime/dist/index.js',
       ),
-      // Use browser WASM for client builds, FS WASM for server/Node builds.
-      '@midnight-ntwrk/ledger': isServer
-        ? path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm_fs.js')
-        : path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm.js'),
-      // Deduplicate: compact-js nests ledger-v7@7.0.0; force all imports to top-level 7.0.2.
-      // Must point to a file (not directory) — ledger-v7 has no main/default export.
-      '@midnight-ntwrk/ledger-v7': isServer
-        ? path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm_fs.js')
-        : path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v7/midnight_ledger_wasm.js'),
-      // midnight-js-contracts v3.1.0 needs midnight-js-types v3.1.0 (nested copy).
-      // webpack hoisting resolves to the top-level v2.0.2 which lacks 'Transaction'.
-      // Force the v3.1.0 bundle for browser builds; server-side contracts is external.
-      ...(!isServer && {
-        '@midnight-ntwrk/midnight-js-types': path.resolve(
-          __dirname,
-          'node_modules/@midnight-ntwrk/midnight-js-contracts/node_modules/@midnight-ntwrk/midnight-js-types',
-        ),
-      }),
+      // ledger-v8 has proper browser/node exports conditions, but force the explicit
+      // file for client vs server to ensure the correct WASM loader is picked.
+      '@midnight-ntwrk/ledger-v8': isServer
+        ? path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v8/midnight_ledger_wasm_fs.js')
+        : path.resolve(__dirname, 'node_modules/@midnight-ntwrk/ledger-v8/midnight_ledger_wasm.js'),
     };
 
     if (!isServer) {
@@ -82,12 +60,10 @@ const nextConfig = {
         buffer:          require.resolve('buffer/'),
       };
 
-      // Only externalize packages that are truly Node.js-only.
-      // midnight-js-contracts, ledger-v7, compact-js, compact-runtime are needed
-      // for browser-side contract deployment and must be bundled (not externalized).
+      // midnight-js-contracts, ledger-v8, compact-js, compact-runtime are bundled
+      // into the browser for client-side contract deployment.
       const browserOnlyExternals = [
         '@midnight-ntwrk/midnight-js-level-private-state-provider', // uses LevelDB
-        '@midnight-ntwrk/ledger-v8',                                 // wallet-sdk only
       ];
 
       const prevExternals = config.externals;

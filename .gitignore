@@ -1,6 +1,7 @@
 node_modules
 resources/
 build/
+!public/build/
 .next/
 tsconfig.tsbuildinfo
 website/node_modules

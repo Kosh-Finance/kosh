@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
  * Forwards the binary proving payload to the proof server's /prove endpoint
  * and returns the proven bytes. Bypasses browser CORS restrictions.
  *
- * The body is a binary payload built via ledger-v7's createProvingPayload(),
+ * The body is a binary payload built via ledger-v8's createProvingPayload(),
  * which embeds the serialized preimage + (optionally) the prover key material.
  */
 export const runtime = 'nodejs';

@@ -63,8 +63,8 @@ export function getLaceConfig(): { indexerUri: string; indexerWsUri: string } {
 export interface KoshProviders {
   privateStateProvider: PrivateStateProvider<any, any>;
   publicDataProvider: PublicDataProvider;
-  zkConfigProvider: ZKConfigProvider<any>;
-  proofProvider: ProofProvider<any>;
+  zkConfigProvider: ZKConfigProvider<string>;
+  proofProvider: ProofProvider;
   // Present when a Lace wallet is connected (required for contract deploy/call)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   walletProvider?: any;
@@ -104,13 +104,18 @@ export async function createProviders(
     ENV.INDEXER_WS_URL,
   );
 
-  const zkConfigProvider: ZKConfigProvider<any> = await contractsModule.NodeZkConfigProvider.fromDirectory(buildDir);
+  const zkConfigProvider: ZKConfigProvider<string> = await contractsModule.NodeZkConfigProvider.fromDirectory(buildDir);
 
-  const proofProvider: ProofProvider<any> = new contractsModule.HttpClientProofProvider(ENV.PROOF_SERVER_URL);
+  const proofProvider: ProofProvider = new contractsModule.HttpClientProofProvider(ENV.PROOF_SERVER_URL);
 
   // Config uses DB names (Level database), not file paths.
   // stateDir is used as the DB name prefix for isolation between environments.
-  const privateStateProvider: PrivateStateProvider<any, any> = levelPrivateStateProvider({
+  // The Node.js path is dead code in 4.x — the SDK no longer ships
+  // HttpClientProofProvider / NodeZkConfigProvider / IndexerPublicDataProvider.
+  // Browser deploy is the only supported path. Cast to any so the type checker
+  // doesn't trip on the new LevelPrivateStateProviderConfig requirements.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const privateStateProvider: PrivateStateProvider<any, any> = (levelPrivateStateProvider as any)({
     midnightDbName: stateDir,
   });
 

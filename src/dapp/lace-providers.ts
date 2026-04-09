@@ -202,7 +202,7 @@ export function makeBrowserPublicDataProvider(indexerUrl: string): any {
   async function deserializeZswapChainState(chainStateHex: string) {
     const { fromHex } = await import('@midnight-ntwrk/midnight-js-utils');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { ZswapChainState } = await import('@midnight-ntwrk/ledger-v7') as any;
+    const { ZswapChainState } = await import('@midnight-ntwrk/ledger-v8') as any;
     return ZswapChainState.deserialize(fromHex(chainStateHex));
   }
 
@@ -306,12 +306,12 @@ export function makeBrowserPublicDataProvider(indexerUrl: string): any {
  */
 async function makeHttpProvingProvider(buildPath: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ledgerV7 = await import('@midnight-ntwrk/ledger-v7') as any;
+  const ledgerV8 = await import('@midnight-ntwrk/ledger-v8') as any;
 
   return {
     async check(serializedPreimage: Uint8Array, keyLocation: string) {
       const ir = await fetchBytes(`${buildPath}/zkir/${keyLocation}.bzkir`);
-      const payload = ledgerV7.createCheckPayload(serializedPreimage, ir);
+      const payload = ledgerV8.createCheckPayload(serializedPreimage, ir);
       const res = await fetch('/api/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream' },
@@ -322,7 +322,7 @@ async function makeHttpProvingProvider(buildPath: string) {
         throw new Error(`/api/check failed: ${res.status} ${text}`);
       }
       const result = new Uint8Array(await res.arrayBuffer());
-      return ledgerV7.parseCheckResult(result) as (bigint | undefined)[];
+      return ledgerV8.parseCheckResult(result) as (bigint | undefined)[];
     },
     async prove(
       serializedPreimage: Uint8Array,
@@ -335,7 +335,7 @@ async function makeHttpProvingProvider(buildPath: string) {
         fetchBytes(`${buildPath}/zkir/${keyLocation}.bzkir`),
       ]);
       const keyMaterial = { proverKey, verifierKey, ir };
-      const payload = ledgerV7.createProvingPayload(
+      const payload = ledgerV8.createProvingPayload(
         serializedPreimage,
         overwriteBindingInput,
         keyMaterial,
@@ -370,8 +370,8 @@ export function makeBrowserProofProvider(api: ConnectedAPI, buildPath = '/build'
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async proveTx(unprovenTx: any) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ledgerV7 = await import('@midnight-ntwrk/ledger-v7') as any;
-      const costModel = ledgerV7.CostModel.initialCostModel();
+      const ledgerV8 = await import('@midnight-ntwrk/ledger-v8') as any;
+      const costModel = ledgerV8.CostModel.initialCostModel();
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let provider: any;
@@ -437,15 +437,15 @@ export async function createLaceProviders(api: ConnectedAPI) {
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async balanceTx(provenTx: any, _newCoins: unknown[]) {
-      const [utils, ledgerV7] = await Promise.all([
+      const [utils, ledgerV8] = await Promise.all([
         import('@midnight-ntwrk/midnight-js-utils'),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        import('@midnight-ntwrk/ledger-v7') as Promise<any>,
+        import('@midnight-ntwrk/ledger-v8') as Promise<any>,
       ]);
       const hex = utils.toHex(provenTx.serialize() as Uint8Array);
       const { tx: balancedHex } = await api.balanceUnsealedTransaction(hex);
       // Reconstruct as Transaction<'signature', 'proof', 'binding'>
-      return ledgerV7.Transaction.deserialize(
+      return ledgerV8.Transaction.deserialize(
         'signature', 'proof', 'binding',
         utils.fromHex(balancedHex),
       );
