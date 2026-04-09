@@ -295,36 +295,102 @@ export function makeBrowserPublicDataProvider(indexerUrl: string): any {
 // ─── BrowserProofProvider ────────────────────────────────────────────────────
 
 /**
- * Delegates ZK proving to Lace via getProvingProvider(keyMaterialProvider).
+ * Builds a ProvingProvider that POSTs to our Next.js /api/prove and /api/check
+ * routes. The routes proxy to the Midnight proof server (NEXT_PUBLIC_PROOF_SERVER_URL),
+ * avoiding browser CORS restrictions.
  *
- * Lace fetches the prover keys from our keyMaterialProvider (which serves them
- * from /build/keys/) and handles the actual proving (either in-browser WASM
- * or via Lace's own proof server, depending on wallet configuration).
+ * For each circuit prove() call we fetch the prover key, verifier key, and IR
+ * from /build/ and embed them in the binary payload via createProvingPayload's
+ * 3rd argument. This way the proof server doesn't need our contract's keys
+ * pre-installed.
+ */
+async function makeHttpProvingProvider(buildPath: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ledgerV7 = await import('@midnight-ntwrk/ledger-v7') as any;
+
+  return {
+    async check(serializedPreimage: Uint8Array, keyLocation: string) {
+      const ir = await fetchBytes(`${buildPath}/zkir/${keyLocation}.bzkir`);
+      const payload = ledgerV7.createCheckPayload(serializedPreimage, ir);
+      const res = await fetch('/api/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: payload,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`/api/check failed: ${res.status} ${text}`);
+      }
+      const result = new Uint8Array(await res.arrayBuffer());
+      return ledgerV7.parseCheckResult(result) as (bigint | undefined)[];
+    },
+    async prove(
+      serializedPreimage: Uint8Array,
+      keyLocation: string,
+      overwriteBindingInput?: bigint,
+    ) {
+      const [proverKey, verifierKey, ir] = await Promise.all([
+        fetchBytes(`${buildPath}/keys/${keyLocation}.prover`),
+        fetchBytes(`${buildPath}/keys/${keyLocation}.verifier`),
+        fetchBytes(`${buildPath}/zkir/${keyLocation}.bzkir`),
+      ]);
+      const keyMaterial = { proverKey, verifierKey, ir };
+      const payload = ledgerV7.createProvingPayload(
+        serializedPreimage,
+        overwriteBindingInput,
+        keyMaterial,
+      );
+      const res = await fetch('/api/prove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: payload,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`/api/prove failed: ${res.status} ${text}`);
+      }
+      return new Uint8Array(await res.arrayBuffer());
+    },
+  };
+}
+
+/**
+ * Returns a ProofProvider compatible with midnight-js-contracts.
  *
- * CostModel.initialCostModel() is imported from ledger-v7 at call time.
+ * Two paths, in order of preference:
+ *   1. Lace's `getProvingProvider(keyMaterialProvider)` — newest dapp-connector-api 4.x.
+ *      Lace handles proving (in-WASM or via its own bundled proof server).
+ *   2. HTTP fallback — POSTs to our /api/prove and /api/check Next.js routes,
+ *      which proxy to the Midnight proof server. Used when the connected wallet
+ *      is older and doesn't expose getProvingProvider.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function makeBrowserProofProvider(api: ConnectedAPI, buildPath = '/build'): any {
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async proveTx(unprovenTx: any) {
-      // Provide ZK key material to Lace — Lace calls these to fetch keys for proving.
-      const keyMaterialProvider = {
-        getZKIR:       (id: string) => fetchBytes(`${buildPath}/zkir/${id}.bzkir`),
-        getProverKey:  (id: string) => fetchBytes(`${buildPath}/keys/${id}.prover`),
-        getVerifierKey:(id: string) => fetchBytes(`${buildPath}/keys/${id}.verifier`),
-      };
-
-      const laceProvider = await api.getProvingProvider(keyMaterialProvider);
-
-      // CostModel must be a WASM CostModel instance — use the default initial model.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ledgerV7 = await import('@midnight-ntwrk/ledger-v7') as any;
       const costModel = ledgerV7.CostModel.initialCostModel();
 
-      // Transaction.prove(provider, costModel) calls laceProvider.prove() for each
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let provider: any;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (typeof (api as any).getProvingProvider === 'function') {
+        const keyMaterialProvider = {
+          getZKIR:        (id: string) => fetchBytes(`${buildPath}/zkir/${id}.bzkir`),
+          getProverKey:   (id: string) => fetchBytes(`${buildPath}/keys/${id}.prover`),
+          getVerifierKey: (id: string) => fetchBytes(`${buildPath}/keys/${id}.verifier`),
+        };
+        provider = await api.getProvingProvider(keyMaterialProvider);
+      } else {
+        provider = await makeHttpProvingProvider(buildPath);
+      }
+
+      // Transaction.prove(provider, costModel) calls provider.prove() for each
       // circuit, returning Transaction<SignatureEnabled, Proof, PreBinding>.
-      return unprovenTx.prove(laceProvider, costModel);
+      return unprovenTx.prove(provider, costModel);
     },
   };
 }
