@@ -110,13 +110,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       ]);
 
       sessionStorage.setItem('kosh:wallet:config', JSON.stringify(cfg));
-      // Persist display address so auto-reconnect restores it without re-calling the API
+      // Prefer the proper Bech32m shielded address if Lace returns one,
+      // otherwise fall back to the coin public key (also Bech32m).
+      // On current preprod Lace, shieldedAddress sometimes comes back as raw hex.
+      const isBech32m = (s: string | undefined): s is string =>
+        typeof s === 'string' && s.startsWith('mn_');
+      const displayShielded = isBech32m(addrs.shieldedAddress)
+        ? addrs.shieldedAddress
+        : (addrs.shieldedCoinPublicKey ?? null);
+
+      // Persist display addresses so auto-reconnect restores them without re-calling the API
       sessionStorage.setItem('kosh:wallet:address', unshielded.unshieldedAddress ?? '');
-      sessionStorage.setItem('kosh:wallet:shielded', addrs.shieldedAddress ?? '');
+      sessionStorage.setItem('kosh:wallet:shielded', displayShielded ?? '');
 
       setConnectedApi(api);
       setAddress(unshielded.unshieldedAddress ?? null);
-      setShieldedAddress(addrs.shieldedCoinPublicKey ?? null);
+      setShieldedAddress(displayShielded);
       setStatus('connected');
       sessionStorage.setItem('kosh:wallet:connected', 'true');
 

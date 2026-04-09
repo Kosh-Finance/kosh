@@ -14,7 +14,7 @@
  */
 
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
-import { parseCoinPublicKeyToHex, parseEncPublicKeyToHex, fromHex } from '@midnight-ntwrk/midnight-js-utils';
+import { parseCoinPublicKeyToHex, parseEncPublicKeyToHex } from '@midnight-ntwrk/midnight-js-utils';
 import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -341,11 +341,16 @@ export async function createLaceProviders(api: ConnectedAPI) {
   const { shieldedCoinPublicKey, shieldedEncryptionPublicKey } =
     await api.getShieldedAddresses();
 
-  // Decode Bech32m keys to { bytes: Uint8Array } — the format the Midnight SDK's
-  // WalletProvider interface expects for coinPublicKey and encryptionPublicKey.
+  // The contracts SDK calls parseCoinPublicKeyToHex(walletProvider.getCoinPublicKey(), networkId)
+  // internally, which accepts BOTH hex and Bech32m strings. So getCoinPublicKey() must return
+  // a STRING — not a { bytes: Uint8Array } object. Pass through whatever Lace returned.
+  // We also pre-validate by parsing once to surface a clear error if Lace returns garbage.
   const networkId = getNetworkId();
-  const coinPublicKey   = { bytes: fromHex(parseCoinPublicKeyToHex(shieldedCoinPublicKey, networkId)) };
-  const encPublicKey    = { bytes: fromHex(parseEncPublicKeyToHex(shieldedEncryptionPublicKey, networkId)) };
+  parseCoinPublicKeyToHex(shieldedCoinPublicKey, networkId);
+  parseEncPublicKeyToHex(shieldedEncryptionPublicKey, networkId);
+
+  const coinPublicKey: string = shieldedCoinPublicKey;
+  const encPublicKey: string  = shieldedEncryptionPublicKey;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const walletProvider: any = {
@@ -353,7 +358,9 @@ export async function createLaceProviders(api: ConnectedAPI) {
     coinPublicKey,
     encryptionPublicKey: encPublicKey,
     // Method forms — older midnight-js-types (bundled inside midnight-js-contracts)
-    // calls getCoinPublicKey() and getEncryptionPublicKey() as methods.
+    // calls getCoinPublicKey() and getEncryptionPublicKey() as methods. Both forms
+    // must return STRINGS (Bech32m or hex), since the SDK pipes the result through
+    // parseCoinPublicKeyToHex() before use.
     getCoinPublicKey()       { return coinPublicKey; },
     getEncryptionPublicKey() { return encPublicKey; },
 
